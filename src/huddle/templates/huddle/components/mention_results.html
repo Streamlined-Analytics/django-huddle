@@ -2,5 +2,5 @@
 {% for person in people %}
   <button type="button" class="huddle-mention-option" data-pk="{{ person.pk }}" data-name="{{ person.name }}" hx-on:click="huddleMentionPick(this)">{{ person.name }}</button>
 {% empty %}
-  <span class="huddle-mention-empty">{% translate "No matches" %}</span>
+  {% if not is_full_name %}<span class="huddle-mention-empty">{% translate "No matches" %}</span>{% endif %}
 {% endfor %}

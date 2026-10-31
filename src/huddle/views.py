@@ -269,7 +269,11 @@ class EditMessageView(HuddleViewMixin, View):
     """Edit a message in place."""
 
     def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
-        """Show the inline edit form."""
+        """Show the inline edit form.
+
+        Only still-mentionable people are pre-picked; the rest are kept by the
+        service while their ``@Name`` stays in the text (ADR-0011).
+        """
         message = self.get_message()
         if not get_policy().can_edit_message(self.chat_user, message):
             raise PermissionDenied
@@ -278,7 +282,11 @@ class EditMessageView(HuddleViewMixin, View):
             channel=message.channel,
             initial={
                 "text": message_view.text,
-                "mentions": list(message.mentions.values_list("user", flat=True)),
+                "mentions": list(
+                    message.mentions.filter(user__in=get_policy().mentionable_users(message.channel)).values_list(
+                        "user", flat=True
+                    )
+                ),
                 "references": [reference.token for reference in message_view.references],
             },
         )
@@ -322,13 +330,18 @@ class MentionSearchView(HuddleViewMixin, View):
     """Autocomplete people who may be @mentioned in a channel."""
 
     def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
-        """Match ``q`` against the mentionable users' display names and emails."""
+        """Match ``q`` against the mentionable users' display names and emails.
+
+        ``q`` may contain spaces while a full name is typed. A query with a
+        space and no match is usually ordinary text after a finished
+        mention, so it renders no "No matches" note.
+        """
         channel = self.get_channel()
         query = request.GET.get("q", "").strip().lstrip("@").lower()
         candidates = get_policy().mentionable_users(channel).exclude(pk=self.chat_user.pk)
         matches = [user for user in candidates.order_by("pk")[:200] if self._matches(user, query)]
         people = [{"pk": user.pk, "name": display_name(user)} for user in matches[:MENTION_RESULTS_LIMIT]]
-        return self.chat_response("mention_results", {"people": people})
+        return self.chat_response("mention_results", {"people": people, "is_full_name": " " in query})
 
     @staticmethod
     def _matches(user: Any, query: str) -> bool:

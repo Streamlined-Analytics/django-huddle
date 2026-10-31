@@ -15,3 +15,5 @@ superseded decision gets a new record.
 | [ADR-0007](0007-pluggable-reference-resolvers.md) | `#` references resolve through pluggable per-kind resolvers; settings order breaks ties; no new policy hook |
 | [ADR-0008](0008-store-references-by-id-recheck-at-render.md) | Store references by id, record `MessageReference` rows, re-check visibility at render |
 | [ADR-0009](0009-free-typed-mention-handles.md) | Free-typed `@handles` mention when exactly one mentionable user fits |
+| [ADR-0010](0010-typed-full-name-mentions.md) | Typed full names mention; longest match first; ambiguity mentions nobody |
+| [ADR-0011](0011-edits-keep-links-whose-text-remains.md) | Edits keep links whose text remains, using numbered `#unavailable-N` placeholders |

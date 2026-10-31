@@ -24,6 +24,8 @@ from django.utils.safestring import SafeString
 
 from huddle.conf import get_policy
 from huddle.conf import get_reference_registry
+from huddle.markup import MENTION_TOKEN
+from huddle.markup import REFERENCE_TOKEN
 from huddle.markup import MessageMarkup
 from huddle.markup import display_name
 from huddle.models import Channel
@@ -57,6 +59,20 @@ class MessageView:
     def pk(self) -> Any:
         """The message's primary key."""
         return self.message.pk
+
+
+@dataclass(frozen=True)
+class EditableLink:
+    """An existing token in a message, and how the composer shows it to one editor.
+
+    ``target`` is the mentioned user, the visible :class:`Reference`, or
+    ``None`` when the editor can't see it (a deleted user, or a reference
+    shown as ``#unavailable-N``).
+    """
+
+    token: str
+    form: str
+    target: Any
 
 
 @dataclass(frozen=True)
@@ -98,6 +114,24 @@ class ChatRenderer:
     def editable_text(self, message: Message) -> str:
         """The composer text for editing ``message``."""
         return self.message_view(message).text
+
+    def editable_links(self, message: Message) -> list[EditableLink]:
+        """Every token in ``message`` with the text this viewer's composer shows for it."""
+        users_by_pk = self._mentioned_users([message])
+        references = self._references([message]).get(message.pk, {})
+        forms = self.markup.editable_forms(message.body, users_by_pk, references)
+        return [
+            EditableLink(token=token, form=form, target=self._link_target(token, users_by_pk, references))
+            for token, form in forms.items()
+        ]
+
+    @staticmethod
+    def _link_target(token: str, users_by_pk: dict[str, Any], references: ReferenceMap) -> Any:
+        mention = MENTION_TOKEN.fullmatch(token)
+        if mention is not None:
+            return users_by_pk.get(mention.group(1))
+        reference = REFERENCE_TOKEN.fullmatch(token)
+        return references.get(reference.group(1)) if reference is not None else None
 
     def channel_label(self, channel: Channel) -> str:
         """``#name`` for channels; the other members' names for DMs."""

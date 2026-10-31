@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.2.1 (2026-10-31)
+
+- Typed full names mention: `@Ben Atkinson` (case-insensitive) mentions the one
+  mentionable user with that display name, without picking. The longest name
+  wins (`@Ann Lee` over `@Ann`), a name must end at a word boundary
+  (`@Ann Leeds` is not Ann Lee), and a name shared by several people mentions
+  nobody. Still governed by `HUDDLE_FREE_TYPED_MENTIONS` (on by default).
+- The composer's `@` autocomplete keeps narrowing across spaces (`@Ben A`). A
+  multi-word query with no match shows nothing rather than "No matches".
+- Edits keep links whose text remains. An existing mention or reference whose
+  `@Name`, `#code` or `#unavailable-N` text is still in the edited text is
+  kept verbatim, even if the editor can no longer see it; removing the text
+  removes the link and its `MessageReference` row. References the editor can't
+  see now show as numbered `#unavailable-1`, `#unavailable-2`… in the edit box
+  (previously a single `#unavailable` that was dropped on save). This applies
+  to the HTML edit form, REST `PATCH` and `ChatService.edit_message()`. New:
+  `ChatService.kept_links()`, `MessageMarkup.editable_forms()`,
+  `ChatRenderer.editable_links()`.
+- The HTML edit form only pre-picks mentions of people who are still
+  mentionable, so editing a message that mentions someone who has since lost
+  access no longer fails validation.
+
 ## 0.2.0 (2026-10-31)
 
 - `#` references to host objects. Register `huddle.references.ReferenceResolver`
