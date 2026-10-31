@@ -202,12 +202,14 @@ class MessageMarkup:
 
     @staticmethod
     def _replace_typed(body: str, typed: Mapping[str, Any]) -> str:
-        names = sorted((key for key in typed if not _is_handle(key)), key=len, reverse=True)
-        lowered = body.lower()
+        names = [
+            (key, re.compile(re.escape(key), re.IGNORECASE))
+            for key in sorted((key for key in typed if not _is_handle(key)), key=len, reverse=True)
+        ]
         parts: list[str] = []
         position = 0
         for match in MENTION_START.finditer(body):
-            key, end = MessageMarkup._typed_key_at(body, lowered, match.end(), typed, names)
+            key, end = MessageMarkup._typed_key_at(body, match.end(), typed, names)
             user = typed.get(key) if key is not None else None
             if user is None or match.start() < position:
                 continue
@@ -219,13 +221,18 @@ class MessageMarkup:
 
     @staticmethod
     def _typed_key_at(
-        body: str, lowered: str, start: int, typed: Mapping[str, Any], names: list[str]
+        body: str, start: int, typed: Mapping[str, Any], names: list[tuple[str, re.Pattern[str]]]
     ) -> tuple[str | None, int]:
-        """The longest key of ``typed`` that starts at ``start`` and ends a word, and where it ends."""
-        for name in names:
-            end = start + len(name)
-            if lowered.startswith(name, start) and _ends_word(body, end):
-                return name, end
+        """The longest key of ``typed`` that starts at ``start`` and ends a word, and where it ends.
+
+        Names are matched with case-insensitive patterns against ``body``
+        itself, because lower-casing can change a string's length (``İ``) and
+        would shift offsets.
+        """
+        for key, pattern in names:
+            found = pattern.match(body, start)
+            if found is not None and _ends_word(body, found.end()):
+                return key, found.end()
         handle = HANDLE_BODY.match(body, start)
         if handle is not None and handle.group(0).lower() in typed:
             return handle.group(0).lower(), handle.end()

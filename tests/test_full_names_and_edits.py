@@ -221,3 +221,13 @@ def test_html_edit_keeps_mention_of_someone_no_longer_mentionable(client, servic
     client.post(reverse("huddle:edit", args=[message.pk]), {"text": "hi @Bob Jones!"}, **HTMX)
     message.refresh_from_db()
     assert message.body == f"hi <@{bob.pk}>!"
+
+
+def test_full_name_matching_survives_case_changing_lengths():
+    ann_lee = SimpleNamespace(pk=2)
+    assert markup.encode("İİ @Ann Lee ok", handles={"ann lee": ann_lee}) == "İİ <@2> ok"
+
+
+def test_full_names_with_regex_characters_match_literally():
+    odd = SimpleNamespace(pk=3)
+    assert markup.encode("@a.b (c) and @axb (c)", handles={"a.b (c)": odd}) == "<@3> and @axb (c)"
