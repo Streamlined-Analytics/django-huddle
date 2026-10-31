@@ -1,0 +1,45 @@
+ci:
+  autoupdate_schedule: monthly
+  skip: [mypy]
+
+default_language_version:
+  python: python3.13
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c  # frozen: v6.0.0
+    hooks:
+      - id: check-added-large-files
+      - id: check-case-conflict
+      - id: check-merge-conflict
+      - id: check-toml
+      - id: check-yaml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+
+  - repo: https://github.com/tox-dev/pyproject-fmt
+    rev: 3b42b9776870badc9eaffdef9a4a0834b764d87c  # frozen: v2.29.3
+    hooks:
+      - id: pyproject-fmt
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: 321478e58f4938179c6b86e4ddfa923d1547a49b  # frozen: v0.16.6
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: https://github.com/adamchainz/django-upgrade
+    rev: e668ea858b908d23a9702b24214f4fc5d07ed50f  # frozen: 1.32.0
+    hooks:
+      - id: django-upgrade
+        args: [--target-version, "6.0"]
+
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy
+        entry: uv run mypy src/ tests/ example/
+        language: system
+        types: [python]
+        pass_filenames: false

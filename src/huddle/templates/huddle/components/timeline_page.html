@@ -1,0 +1,9 @@
+{% load i18n %}
+{% if has_older %}
+  <button type="button" class="huddle-older" hx-get="{% url 'huddle:channel' channel.pk %}?before={{ oldest.pk }}" hx-swap="outerHTML">
+    {% translate "Load older messages" %}
+  </button>
+{% endif %}
+{% for message_view in message_views %}{% include "huddle/components/message.html" %}{% empty %}
+  {% if not oldest %}<p class="huddle-empty">{% translate "No messages yet. Say hello!" %}</p>{% endif %}
+{% endfor %}

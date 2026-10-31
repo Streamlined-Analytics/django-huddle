@@ -1,0 +1,12 @@
+{% extends "huddle/layout.html" %}
+{% load i18n %}
+{% block huddle_main %}
+<section class="huddle-welcome">
+  <h2>{% translate "Welcome to chat" %}</h2>
+  <p>{% translate "Join a channel or start a direct message to get going." %}</p>
+  <p>
+    <a class="huddle-button" href="{% url 'huddle:browse' %}">{% translate "Browse channels" %}</a>
+    <a class="huddle-button" href="{% url 'huddle:new_direct' %}">{% translate "New direct message" %}</a>
+  </p>
+</section>
+{% endblock %}

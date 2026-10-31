@@ -1,0 +1,19 @@
+{% load i18n %}
+<section class="huddle-browse">
+  <h2>{% translate "Channels" %}</h2>
+  <ul class="huddle-browse__list">
+    {% for entry in browse_entries %}
+      <li class="huddle-browse__entry">
+        <a href="{% url 'huddle:channel' entry.channel.pk %}">{{ entry.label }}</a>
+        {% if entry.channel.topic %}<span class="huddle-browse__topic">{{ entry.channel.topic }}</span>{% endif %}
+        {% if not entry.is_member %}
+          <form method="post" action="{% url 'huddle:join' entry.channel.pk %}" class="huddle-inline-form">
+            {% csrf_token %}<button type="submit" class="huddle-button">{% translate "Join" %}</button>
+          </form>
+        {% endif %}
+      </li>
+    {% empty %}
+      <li class="huddle-empty">{% translate "There are no channels yet." %}</li>
+    {% endfor %}
+  </ul>
+</section>

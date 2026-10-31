@@ -1,0 +1,27 @@
+{% load i18n %}
+<article id="huddle-message-{{ message_view.pk }}" class="huddle-message{% if message_view.is_own %} is-own{% endif %}{% if message_view.message.is_deleted %} is-deleted{% endif %}">
+  <header class="huddle-message__meta">
+    <span class="huddle-message__author">{{ message_view.author_name }}</span>
+    <time datetime="{{ message_view.message.created_at|date:'c' }}" title="{{ message_view.message.created_at }}">{{ message_view.message.created_at|date:"H:i" }}</time>
+    {% if message_view.message.edited_at and not message_view.message.is_deleted %}<span class="huddle-message__edited">{% translate "(edited)" %}</span>{% endif %}
+  </header>
+  {% if message_view.message.is_deleted %}
+    <p class="huddle-message__body huddle-message__body--deleted">{% translate "This message was deleted." %}</p>
+  {% else %}
+    <div class="huddle-message__body">{{ message_view.html }}</div>
+    <div class="huddle-message__actions">
+      {% if not message_view.message.is_reply %}
+        <button type="button" class="huddle-link-button" hx-get="{% url 'huddle:thread' message_view.pk %}" hx-target="#huddle-thread">{% translate "Reply in thread" %}</button>
+      {% endif %}
+      {% if message_view.can_edit %}
+        <button type="button" class="huddle-link-button" hx-get="{% url 'huddle:edit' message_view.pk %}" hx-target="#huddle-message-{{ message_view.pk }}" hx-swap="outerHTML">{% translate "Edit" %}</button>
+      {% endif %}
+      {% if message_view.can_delete %}
+        <form hx-post="{% url 'huddle:delete' message_view.pk %}" hx-target="#huddle-message-{{ message_view.pk }}" hx-swap="outerHTML" hx-confirm="{% translate 'Delete this message?' %}" class="huddle-inline-form">
+          {% csrf_token %}<button type="submit" class="huddle-link-button">{% translate "Delete" %}</button>
+        </form>
+      {% endif %}
+    </div>
+  {% endif %}
+  {% if not message_view.message.is_reply %}{% include "huddle/components/thread_summary.html" %}{% endif %}
+</article>

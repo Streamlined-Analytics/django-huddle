@@ -1,0 +1,8 @@
+<li id="huddle-entry-{{ entry.channel.pk }}" class="huddle-sidebar__entry{% if entry.channel.pk == current_channel.pk or is_current %} is-current{% endif %}{% if entry.unread_count and not is_current %} has-unread{% endif %}">
+  <a href="{% url 'huddle:channel' entry.channel.pk %}">
+    <span class="huddle-sidebar__label">{{ entry.label }}</span>
+    {% if entry.unread_count and entry.channel.pk != current_channel.pk and not is_current %}
+      <span class="huddle-badge">{{ entry.unread_count }}</span>
+    {% endif %}
+  </a>
+</li>

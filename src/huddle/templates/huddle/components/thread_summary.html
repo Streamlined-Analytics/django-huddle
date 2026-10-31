@@ -1,0 +1,8 @@
+{% load i18n %}
+<div id="huddle-thread-summary-{{ message_view.pk }}" class="huddle-thread-summary">
+  {% if message_view.message.reply_count %}
+    <button type="button" class="huddle-link-button" hx-get="{% url 'huddle:thread' message_view.pk %}" hx-target="#huddle-thread">
+      {% blocktranslate count counter=message_view.message.reply_count %}{{ counter }} reply{% plural %}{{ counter }} replies{% endblocktranslate %}
+    </button>
+  {% endif %}
+</div>

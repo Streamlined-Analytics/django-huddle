@@ -1,0 +1,143 @@
+[build-system]
+build-backend = "hatchling.build"
+requires = [ "hatchling" ]
+
+[project]
+name = "django-huddle"
+version = "0.1.0"
+description = "Slack-style team chat for Django: channels, direct messages, threads and @mentions over Django Channels."
+readme = "README.md"
+license = { text = "MIT" }
+maintainers = [ { name = "Ben Atkinson", email = "ben@streamlinedanalytics.co.uk" } ]
+authors = [ { name = "Ben Atkinson", email = "ben@streamlinedanalytics.co.uk" } ]
+requires-python = ">=3.12"
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Web Environment",
+  "Framework :: Django",
+  "Framework :: Django :: 6.0",
+  "Framework :: Django :: 6.1",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: Communications :: Chat",
+  "Typing :: Typed",
+]
+dependencies = [
+  "channels>=4.2",
+  "django>=6",
+]
+optional-dependencies.api = [
+  "djangorestframework>=3.16",
+]
+urls.bugs = "https://github.com/Streamlined-Analytics/django-huddle/issues"
+urls.changelog = "https://github.com/Streamlined-Analytics/django-huddle/releases"
+urls.homepage = "https://github.com/Streamlined-Analytics/django-huddle"
+
+[dependency-groups]
+dev = [
+  { include-group = "lint" },
+  { include-group = "test" },
+  { include-group = "typecheck" },
+]
+test = [
+  "coverage",
+  "daphne",
+  "djangorestframework",
+  "pytest",
+  "pytest-asyncio",
+  "pytest-django",
+]
+lint = [
+  "pre-commit",
+  "ruff",
+]
+typecheck = [
+  "django-stubs",
+  "djangorestframework-stubs",
+  "mypy",
+]
+
+[tool.hatch]
+build.targets.wheel.packages = [ "src/huddle" ]
+
+[tool.uv]
+required-version = ">=0.9.17"
+default-groups = [ "dev" ]
+exclude-newer = "1 week"
+package = true
+
+[tool.ruff]
+line-length = 120
+extend-exclude = [ "src/huddle/migrations" ]
+lint.select = [
+  "B",   # flake8-bugbear
+  "C90", # mccabe complexity
+  "DJ",  # flake8-django
+  "E",   # pycodestyle errors
+  "F",   # Pyflakes
+  "I",   # isort
+  "N",   # pep8-naming
+  "PL",  # pylint
+  "UP",  # pyupgrade
+  "W",   # pycodestyle warnings
+]
+lint.ignore = [ "PLR2004" ]
+lint.per-file-ignores."tests/**" = [ "PLR0913", "PLR0915", "PLR0917" ]
+lint.isort.force-single-line = true
+lint.mccabe.max-complexity = 10
+
+[tool.pyproject-fmt]
+max_supported_python = "3.14"
+
+[tool.mypy]
+mypy_path = "src/"
+namespace_packages = false
+python_version = "3.12"
+warn_unreachable = true
+enable_error_code = [
+  "ignore-without-code",
+  "redundant-expr",
+  "truthy-bool",
+]
+strict = true
+plugins = [ "mypy_django_plugin.main" ]
+overrides = [
+  { module = [ "conftest", "tests.*" ], disallow_untyped_calls = false, disallow_untyped_defs = false, disallow_incomplete_defs = false },
+  { module = "huddle.consumers", disable_error_code = [ "untyped-decorator" ] },
+  { module = "example.*", disallow_untyped_defs = false },
+  { module = [ "channels.*" ], ignore_missing_imports = true },
+]
+
+[tool.django-stubs]
+django_settings_module = "tests.settings"
+
+[tool.pytest]
+asyncio_default_fixture_loop_scope = "function"
+asyncio_mode = "auto"
+django_find_project = false
+DJANGO_SETTINGS_MODULE = "tests.settings"
+pythonpath = [ "." ]
+testpaths = [ "tests" ]
+
+[tool.coverage]
+run.source = [ "example/", "tests/" ]
+run.source_pkgs = [ "huddle" ]
+run.omit = [ "example/asgi.py", "example/wsgi.py" ]
+run.branch = true
+run.parallel = true
+paths.source = [ "src/huddle", "*/site-packages/huddle" ]
+report.fail_under = 95
+report.exclude_also = [
+  "@(abc\\.)?abstractmethod",
+  "@overload",
+  "\\.\\.\\.",
+  "class .*\\bProtocol\\):",
+  "if TYPE_CHECKING:",
+  "raise NotImplementedError",
+]
+report.skip_covered = true
+report.show_missing = true

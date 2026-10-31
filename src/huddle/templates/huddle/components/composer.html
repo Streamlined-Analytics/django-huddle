@@ -1,0 +1,8 @@
+{% load i18n %}
+{% if can_post %}
+<form id="huddle-composer" class="huddle-composer" hx-post="{% url 'huddle:post' channel.pk %}" hx-swap="outerHTML">
+  {% csrf_token %}
+  {% include "huddle/components/composer_fields.html" %}
+  <button type="submit" class="huddle-button">{% translate "Send" %}</button>
+</form>
+{% endif %}

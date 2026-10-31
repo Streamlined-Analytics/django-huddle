@@ -1,0 +1,8 @@
+{% load i18n %}
+{% if can_post %}
+<form id="huddle-reply-composer" class="huddle-composer" hx-post="{% url 'huddle:reply' parent.pk %}" hx-swap="outerHTML">
+  {% csrf_token %}
+  {% with channel=parent.channel %}{% include "huddle/components/composer_fields.html" %}{% endwith %}
+  <button type="submit" class="huddle-button">{% translate "Reply" %}</button>
+</form>
+{% endif %}

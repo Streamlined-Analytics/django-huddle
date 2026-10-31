@@ -1,0 +1,12 @@
+{% load i18n %}
+<section class="huddle-thread__panel" data-thread="{{ parent_view.pk }}">
+  <header class="huddle-thread__header">
+    <h3>{% translate "Thread" %}</h3>
+    <button type="button" class="huddle-link-button" hx-on:click="huddleCloseThread()">{% translate "Close" %}</button>
+  </header>
+  {% with message_view=parent_view %}{% include "huddle/components/message.html" %}{% endwith %}
+  <div id="huddle-thread-replies-{{ parent_view.pk }}" class="huddle-thread__replies">
+    {% for message_view in reply_views %}{% include "huddle/components/message.html" %}{% endfor %}
+  </div>
+  {% with parent=parent_view.message %}{% include "huddle/components/reply_composer.html" %}{% endwith %}
+</section>

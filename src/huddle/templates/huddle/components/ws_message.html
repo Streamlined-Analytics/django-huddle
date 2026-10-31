@@ -1,0 +1,8 @@
+{% if action == "created" and parent %}
+  <div hx-swap-oob="beforeend:#huddle-thread-replies-{{ parent.pk }}">{% include "huddle/components/message.html" %}</div>
+  {% with message_view=parent_view %}<div hx-swap-oob="outerHTML:#huddle-thread-summary-{{ parent_view.pk }}">{% include "huddle/components/thread_summary.html" %}</div>{% endwith %}
+{% elif action == "created" %}
+  <div hx-swap-oob="beforeend:#huddle-timeline-{{ message_view.message.channel_id }}">{% include "huddle/components/message.html" %}</div>
+{% else %}
+  <div hx-swap-oob="outerHTML:#huddle-message-{{ message_view.pk }}">{% include "huddle/components/message.html" %}</div>
+{% endif %}

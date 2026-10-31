@@ -1,0 +1,19 @@
+{% load i18n %}
+<section class="huddle-channel" data-channel="{{ channel.pk }}">
+  <form ws-send hx-trigger="load, huddle:resubscribe" class="huddle-ws-subscribe" hidden>
+    <input type="hidden" name="subscribe" value="{{ channel.pk }}">
+  </form>
+  <header class="huddle-channel__header">
+    <h2 class="huddle-channel__title">{{ channel_label }}</h2>
+    {% if channel.topic %}<p class="huddle-channel__topic">{{ channel.topic }}</p>{% endif %}
+    {% if not channel.is_direct and is_member %}
+      <form method="post" action="{% url 'huddle:leave' channel.pk %}" class="huddle-channel__leave">
+        {% csrf_token %}<button type="submit" class="huddle-link-button">{% translate "Leave" %}</button>
+      </form>
+    {% endif %}
+  </header>
+  <div id="huddle-timeline-{{ channel.pk }}" class="huddle-timeline" data-read-url="{% url 'huddle:mark_read' channel.pk %}">
+    {% include "huddle/components/timeline_page.html" %}
+  </div>
+  {% include "huddle/components/composer.html" %}
+</section>

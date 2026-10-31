@@ -1,0 +1,12 @@
+{% extends "huddle/layout.html" %}
+{% load i18n %}
+{% block huddle_main %}
+<section class="huddle-form-page">
+  <h2>{% translate "New channel" %}</h2>
+  <form method="post" class="huddle-form">
+    {% csrf_token %}
+    {{ form.as_div }}
+    <button type="submit" class="huddle-button">{% translate "Create channel" %}</button>
+  </form>
+</section>
+{% endblock %}

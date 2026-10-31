@@ -1,0 +1,7 @@
+{% load i18n %}
+<form id="huddle-message-{{ message.pk }}" class="huddle-message huddle-composer is-editing" hx-post="{% url 'huddle:edit' message.pk %}" hx-swap="outerHTML">
+  {% csrf_token %}
+  {% with channel=message.channel %}{% include "huddle/components/composer_fields.html" %}{% endwith %}
+  <button type="submit" class="huddle-button">{% translate "Save" %}</button>
+  <button type="button" class="huddle-link-button" hx-get="{% url 'huddle:cancel_edit' message.pk %}" hx-target="closest form" hx-swap="outerHTML">{% translate "Cancel" %}</button>
+</form>

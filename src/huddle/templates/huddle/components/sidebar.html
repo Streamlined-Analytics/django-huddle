@@ -1,0 +1,22 @@
+{% load i18n %}
+<nav class="huddle-sidebar__nav" aria-label="{% translate 'Chat' %}">
+  <div class="huddle-sidebar__section">
+    <div class="huddle-sidebar__heading">
+      <span>{% translate "Channels" %}</span>
+      <a href="{% url 'huddle:create_channel' %}" class="huddle-icon-link" title="{% translate 'New channel' %}">+</a>
+    </div>
+    <ul id="huddle-channel-list" class="huddle-sidebar__list">
+      {% for entry in named_entries %}{% include "huddle/components/sidebar_entry.html" %}{% endfor %}
+    </ul>
+    <a href="{% url 'huddle:browse' %}" class="huddle-sidebar__more">{% translate "Browse channels" %}</a>
+  </div>
+  <div class="huddle-sidebar__section">
+    <div class="huddle-sidebar__heading">
+      <span>{% translate "Direct messages" %}</span>
+      <a href="{% url 'huddle:new_direct' %}" class="huddle-icon-link" title="{% translate 'New message' %}">+</a>
+    </div>
+    <ul id="huddle-direct-list" class="huddle-sidebar__list">
+      {% for entry in direct_entries %}{% include "huddle/components/sidebar_entry.html" %}{% endfor %}
+    </ul>
+  </div>
+</nav>

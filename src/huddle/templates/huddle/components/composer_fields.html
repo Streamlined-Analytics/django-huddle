@@ -1,0 +1,6 @@
+<div class="huddle-composer__field">
+  {{ form.text.errors }}
+  <div class="huddle-mention-results" hidden></div>
+  {{ form.text }}
+  <span class="huddle-composer__mentions" data-mention-url="{% url 'huddle:mentions' channel.pk %}">{{ form.mentions }}</span>
+</div>
