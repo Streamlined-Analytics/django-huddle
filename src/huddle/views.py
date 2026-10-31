@@ -15,6 +15,7 @@ from __future__ import annotations
 from typing import Any
 
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.exceptions import BadRequest
 from django.core.exceptions import PermissionDenied
 from django.db.models import Prefetch
 from django.db.models import Q
@@ -32,6 +33,7 @@ from huddle.conf import get_policy
 from huddle.conf import get_reference_registry
 from huddle.conf import get_setting
 from huddle.exceptions import ChatPermissionDeniedError
+from huddle.exceptions import InvalidReferenceIdError
 from huddle.forms import ChannelForm
 from huddle.forms import DirectMessageForm
 from huddle.forms import MessageForm
@@ -55,11 +57,16 @@ class HuddleViewMixin(LoginRequiredMixin):
     kwargs: dict[str, Any]
 
     def dispatch(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponseBase:
-        """Turn service permission errors into 403s (lookups have already 404'd invisible objects)."""
+        """Turn service permission errors into 403s and unusable picked references into 400s.
+
+        Lookups have already 404'd invisible objects.
+        """
         try:
             return super().dispatch(request, *args, **kwargs)
         except ChatPermissionDeniedError as error:
             raise PermissionDenied(str(error)) from error
+        except InvalidReferenceIdError as error:
+            raise BadRequest(str(error)) from error
 
     @property
     def chat_user(self) -> Any:

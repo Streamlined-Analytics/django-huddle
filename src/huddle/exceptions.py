@@ -96,3 +96,14 @@ class UntokenisableReferenceError(HuddleError):
             kind=kind,
             object_id=object_id,
         )
+
+
+class InvalidReferenceIdError(HuddleError):
+    """A resolver could not look up these ids (for example a picked ``ticket:abc`` where ids are integers)."""
+
+    def __init__(self, kind: str, object_ids: list[str]) -> None:
+        super().__init__(
+            f"Reference ids {object_ids!r} are not valid for kind {kind!r}.",
+            kind=kind,
+            object_ids=object_ids,
+        )

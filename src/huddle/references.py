@@ -38,7 +38,10 @@ from typing import TYPE_CHECKING
 from typing import Any
 from typing import ClassVar
 
+from django.core.exceptions import ValidationError
+
 from huddle.exceptions import DuplicateReferenceKindError
+from huddle.exceptions import InvalidReferenceIdError
 from huddle.exceptions import InvalidReferenceKindError
 from huddle.exceptions import UntokenisableReferenceError
 
@@ -194,7 +197,10 @@ class ReferenceRegistry:
         """The ``kind:id`` tokens ``user`` may see in ``channel``, one ``get`` call per kind.
 
         Tokens of unknown kinds, malformed tokens and anything the resolver
-        does not return are left out.
+        does not return are left out. Picked tokens come from the client, so
+        an id the resolver cannot even look up (``ValueError``, ``TypeError``
+        or ``ValidationError``) raises :class:`InvalidReferenceIdError`, which
+        the views and the API turn into a 400.
         """
         visible: dict[str, Reference] = {}
         for kind, ids in self._ids_by_kind(tokens):
@@ -211,5 +217,9 @@ class ReferenceRegistry:
 
     def _visible_of_kind(self, channel: Channel, user: Any, kind: str, ids: set[str]) -> dict[str, Reference]:
         resolver = self._by_kind[kind]
-        references = (resolver.describe(obj) for obj in resolver.get(channel, user, ids))
+        try:
+            found = list(resolver.get(channel, user, ids))
+        except (ValueError, TypeError, ValidationError) as error:
+            raise InvalidReferenceIdError(kind, sorted(ids)) from error
+        references = (resolver.describe(obj) for obj in found)
         return {reference.token: reference for reference in references if reference.id in ids}

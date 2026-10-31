@@ -20,6 +20,7 @@ from example.models import Ticket
 from huddle import signals
 from huddle.conf import get_reference_registry
 from huddle.exceptions import DuplicateReferenceKindError
+from huddle.exceptions import InvalidReferenceIdError
 from huddle.exceptions import InvalidReferenceKindError
 from huddle.exceptions import InvalidReferenceResolverError
 from huddle.exceptions import UntokenisableReferenceError
@@ -64,6 +65,16 @@ class ShadowResolver(ReferenceResolver):
 
     def code(self, obj):
         return obj.pk.removeprefix("s-")
+
+
+class CodeIdTicketResolver(TicketResolver):
+    """Stores the ticket code rather than its primary key."""
+
+    def object_id(self, obj):
+        return obj.code
+
+    def get(self, channel, user, ids):
+        return self.tickets(channel, user).filter(code__in=ids)
 
 
 class SpacedIdResolver(ShadowResolver):
@@ -257,6 +268,21 @@ class TestSending:
         monkeypatch.setattr("huddle.services.MAX_RESOLVED_CODES", 1)
         assert post(alice, site, "#T1 #T2").body == f"<#ticket:{ticket.pk}> #T2"
 
+    def test_content_type_only_when_the_id_is_the_pk(self, settings, site, alice, ticket):
+        settings.HUDDLE_REFERENCE_RESOLVERS = ["tests.test_references.CodeIdTicketResolver"]
+        message = post(alice, site, "#T1")
+        assert message.body == "<#ticket:T1>"
+        row = MessageReference.objects.get()
+        assert (row.object_id, row.content_type) == ("T1", None)
+        assert not MessageReference.objects.for_target(ticket).exists()
+        assert render(message, alice).references[0].code == "T1"
+
+    def test_unusable_picked_id_is_rejected(self, site, alice, ticket):
+        with pytest.raises(InvalidReferenceIdError) as error:
+            post(alice, site, "#T1", references=["ticket:abc"])
+        assert error.value.context == {"kind": "ticket", "object_ids": ["abc"]}
+        assert not Message.objects.exists()
+
     def test_edit_records_only_new_references(self, site, alice, ticket, references_added):
         second = Ticket.objects.create(project=ticket.project, code="T2", title="Paint")
         message = post(alice, site, "#T1")
@@ -357,6 +383,11 @@ class TestViews:
         client.post(reverse("huddle:edit", args=[message.pk]), {"text": "no refs"}, **HTMX)
         assert not MessageReference.objects.exists()
 
+    def test_unusable_picked_id_is_a_bad_request(self, client, site, alice, ticket):
+        client.force_login(alice)
+        data = {"text": "#T1", "references": ["ticket:abc"]}
+        assert client.post(reverse("huddle:post", args=[site.pk]), data, **HTMX).status_code == 400
+
     def test_reply_with_reference(self, client, site, alice, ticket):
         client.force_login(alice)
         root = post(alice, site, "question")
@@ -383,6 +414,8 @@ class TestApi:
         assert found == [expected]
         edited = api.patch(f"/api/chat/messages/{created['id']}/", {"text": "none"}, format="json").json()
         assert edited["references"] == []
+        bad = api.post(url, {"text": "#T1", "reference_ids": ["ticket:abc"]}, format="json")
+        assert bad.status_code == 400
 
     def test_payload_hides_what_the_viewer_cannot_see(self, settings, site, alice, bob, project):
         settings.HUDDLE_REFERENCE_RESOLVERS = ["tests.test_references.ConfidentialTicketResolver"]

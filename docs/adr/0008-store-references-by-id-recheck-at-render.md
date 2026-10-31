@@ -47,6 +47,14 @@ neutralise hand-typed tokens, escape on render) were the starting point.
   message. Payloads add `references: [{kind, id, code, label, url}]`; the API
   accepts `reference_ids` and offers `GET /channels/{id}/references/`.
 - Chip URLs are only linked for relative, `http` or `https` URLs.
+- `content_type` is only recorded when the stored id is the target's primary
+  key. A resolver that stores something else (by overriding `object_id`) gets
+  rows without a content type, so `target` and `for_target()` never point at
+  the wrong row. (Raised in review.)
+- Picked ids come from the client. If a resolver's `get()` cannot even look
+  them up (`ValueError`, `TypeError`, `ValidationError`, for example `abc` for
+  an integer pk), the registry raises `InvalidReferenceIdError`, which the API
+  and the HTML views return as a 400 rather than a 500. (Raised in review.)
 
 ## Consequences
 

@@ -304,8 +304,15 @@ class ChatService:
 
     @staticmethod
     def _reference_row(message: Message, reference: Reference) -> MessageReference:
+        """A row for ``reference``. ``content_type`` is only set when the stored id is the target's primary key.
+
+        A resolver may store something other than the pk (by overriding
+        ``object_id``); a content type paired with that id would make
+        ``target`` and ``for_target()`` point at the wrong row.
+        """
         target = reference.target
-        content_type = ContentType.objects.get_for_model(target) if isinstance(target, models.Model) else None
+        is_model_pk = isinstance(target, models.Model) and reference.id == str(target.pk)
+        content_type = ContentType.objects.get_for_model(target) if is_model_pk else None
         return MessageReference(message=message, kind=reference.kind, object_id=reference.id, content_type=content_type)
 
     def _record_mentions(self, message: Message, users: list[Any]) -> list[Any]:
