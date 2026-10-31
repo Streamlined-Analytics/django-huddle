@@ -1,14 +1,18 @@
 # django-huddle
 
-Slack-style team chat for Django: **channels, direct messages, threads and
-@mentions**, live over [Django Channels](https://channels.readthedocs.io/).
+Slack-style team chat for Django: **channels, direct messages, threads,
+@mentions and `#` links to your own objects**, live over [Django Channels](https://channels.readthedocs.io/).
 
 - **Channels and DMs.** Public and private named channels, plus one-to-one and
   group direct messages (one conversation per group of people).
 - **Threads.** Reply to any message in a side thread, as in Slack. Threads
   are one level deep and track reply counts, followers and read state.
-- **@mentions.** Autocomplete offers only people who can read the channel.
-  Mentions are stored by user id, so renaming someone never breaks old messages.
+- **@mentions.** Autocomplete offers only people who can read the channel, and
+  a typed handle such as `@benatkinson` works too. Mentions are stored by user
+  id, so renaming someone never breaks old messages.
+- **`#` references.** `#B3.2` or `#0001` can link to your own objects (requirements,
+  tickets, risks), through resolvers you write. Each viewer sees only what they
+  may see.
 - **Live.** New messages, edits, deletions, thread replies and unread badges
   arrive over a websocket.
 - **Your permissions.** One policy class decides every visibility and action
@@ -123,6 +127,83 @@ Overridable methods: `scope_q`, `filter_visible`, `can_view`, `can_post`,
 `can_create_channel`, `can_manage_channel`, `can_edit_message`,
 `can_delete_message`, `mentionable_users`, `direct_message_candidates`.
 
+## Mentions
+
+The composer autocompletes `@` from `ChatPolicy.mentionable_users(channel)` and
+posts the picked user ids. A handle typed without picking also counts: the
+display name with the spaces removed (`@benatkinson` for "Ben Atkinson") or the
+email local part (`@b.atkinson`), case-insensitive. If a handle fits more than
+one mentionable user, nobody is mentioned and it stays plain text. Set
+`HUDDLE_FREE_TYPED_MENTIONS = False` to require picking.
+
+## `#` references to your own objects
+
+Messages can link to objects in your project: `where are we up to with #B3.2?`
+Write one resolver per kind of object and list them in settings:
+
+```python
+from huddle.references import ReferenceResolver
+
+
+class RequirementResolver(ReferenceResolver):
+    kind = "requirement"  # stored as <#requirement:42>
+
+    def requirements(self, channel, user):
+        project = channel.scope  # None in DMs and unscoped channels
+        if not isinstance(project, Project) or not project.members.filter(pk=user.pk).exists():
+            return Requirement.objects.none()
+        return Requirement.objects.filter(project=project)
+
+    def search(self, channel, user, query, *, limit):  # composer autocomplete
+        return self.requirements(channel, user).filter(code__istartswith=query)[:limit]
+
+    def resolve_code(self, channel, user, code):  # a typed #code at send time
+        return self.requirements(channel, user).filter(code__iexact=code).first()
+
+    def get(self, channel, user, ids):  # render time, in bulk
+        return self.requirements(channel, user).filter(pk__in=ids)
+
+    def code(self, obj):
+        return obj.code  # what people type after #
+
+    def label(self, obj):
+        return f"#{obj.code} {obj.title}"  # the chip text; url() defaults to get_absolute_url()
+```
+
+```python
+HUDDLE_REFERENCE_RESOLVERS = ["myapp.chat.RequirementResolver", "myapp.chat.RiskResolver"]
+```
+
+- **Every method only returns what `user` may see in `channel`.** Huddle has
+  already checked the user may read the channel; the object is yours to check.
+  Ids arrive as strings, and picked ids come from the client: if `get()` raises
+  `ValueError`, `TypeError` or `ValidationError` on them, huddle answers 400.
+- **`content_type` is only recorded when the stored id is the primary key.** If
+  you override `object_id()`, look references up by `kind` and `object_id`.
+- **DMs have no scope.** `channel.scope` is `None` there (and in unscoped
+  channels). Return nothing if your objects only make sense inside a scope.
+- **Stored by id.** The body keeps `<#requirement:42>`, so renumbering an item
+  doesn't break old messages.
+- **Checked again when shown.** Each viewer's page re-asks `get()`. Someone who
+  can no longer see the item gets a neutral `#unavailable`, never its label.
+- **Unknown or forbidden codes stay plain text.** A hand-typed `<#…>` token is
+  neutralised, so references can't be forged.
+- **Conflicts.** A code picked from autocomplete is exact. A free-typed code goes
+  to the resolvers in settings order, and the first one that resolves it wins.
+- **No resolvers configured** means `#` stays plain text, as in 0.1.0.
+
+Each reference is recorded as a `huddle.models.MessageReference` row (`message`,
+`kind`, `object_id`, and `content_type`/`target` when the resolver returned a
+model instance), kept in step with edits and deletes. To show "discussed in
+chat" on an item:
+
+```python
+MessageReference.objects.for_target(requirement).visible_to(request.user).select_related("message")
+```
+
+The example project has a complete project-scoped policy and resolver in
+[`example/chat.py`](example/chat.py).
+
 ## Writing from your own code
 
 ```python
@@ -132,6 +213,7 @@ chat = ChatService()
 channel = chat.create_channel(user, "site-visits", scope=project)
 message = chat.post_message(user, channel, "Booked for Tuesday @Ann Lee", mentioned=[ann])
 chat.post_message(ann, channel, "Thanks!", parent=message)  # a thread reply
+chat.post_message(user, channel, "See #B3.2", references=["requirement:42"])  # a picked reference
 dm = chat.open_direct(user, [ann, bob])
 ```
 
@@ -148,6 +230,7 @@ Signals are sent **after the transaction commits**:
 | `huddle.signals.message_posted` | `message`, `channel`, `author` |
 | `huddle.signals.user_mentioned` | `message`, `user` (once per newly mentioned user, including on edit) |
 | `huddle.signals.thread_replied` | `message`, `thread`, `recipients` (the thread's followers, minus the author) |
+| `huddle.signals.reference_added` | `message`, `reference` (the `MessageReference` row), `target` (your object); once per newly referenced object, including on edit |
 
 ```python
 @receiver(user_mentioned)
@@ -164,14 +247,18 @@ project's templates directory:
 | Template | What it draws |
 |---|---|
 | `huddle/components/message.html` | One message, with its actions and thread summary |
-| `huddle/components/composer.html`, `composer_fields.html` | The message box and @mention autocomplete |
+| `huddle/components/composer.html`, `composer_fields.html` | The message box, @mention and `#` reference autocomplete |
+| `huddle/components/mention_results.html`, `reference_results.html` | The autocomplete options |
 | `huddle/components/sidebar.html`, `sidebar_entry.html` | Channel and DM list, unread badges |
 | `huddle/components/thread.html` | The thread side panel |
 | `huddle/components/channel_pane.html` | Channel header, timeline and composer |
 | `huddle/layout.html` | The three-column chat layout |
 
 Each message template receives a `message_view` with `message`,
-`author_name`, `html` (safe, escaped), `can_edit`, `can_delete` and `is_own`.
+`author_name`, `html` (safe, escaped), `text` (editable), `references` (the
+objects this viewer may see), `can_edit`, `can_delete` and `is_own`. Reference
+chips have the class `huddle-reference` (`huddle-reference--unavailable` for the
+placeholder).
 
 The default stylesheet (`huddle/huddle.css`) is plain CSS with custom
 properties (`--huddle-accent`, `--huddle-border`, …) for theming.
@@ -186,13 +273,16 @@ properties (`--huddle-accent`, `--huddle-border`, …) for theming.
 | `POST /channels/direct/` | Open a DM `{user_ids: [...]}` |
 | `POST /channels/{id}/join/` · `leave/` · `read/` | Membership and read state |
 | `GET /channels/{id}/messages/?before=&limit=` | A page of top-level messages, oldest first |
-| `POST /channels/{id}/messages/` | Post `{text, mention_ids, parent_id}` |
+| `POST /channels/{id}/messages/` | Post `{text, mention_ids, reference_ids, parent_id}` |
 | `GET /channels/{id}/mentionable/?q=` | People who can be @mentioned |
-| `GET`, `PATCH`, `DELETE /messages/{id}/` | Read, edit `{text, mention_ids}`, delete |
+| `GET /channels/{id}/references/?q=` | Objects that can be `#`-referenced, as `{kind, id, code, label, url}` |
+| `GET`, `PATCH`, `DELETE /messages/{id}/` | Read, edit `{text, mention_ids, reference_ids}`, delete |
 | `GET /messages/{id}/replies/` · `POST read/` | A thread, and marking it read |
 
+`reference_ids` are `kind:id` strings, as returned by the references endpoint.
 Messages come back with `body` (stored tokens), `text` (editable, with
-`@Name`), `html` (rendered and safe), `mention_ids`, `author`, the timestamps,
+`@Name` and `#code`), `html` (rendered and safe), `mention_ids`, `references`
+(`[{kind, id, code, label, url}]`, only what this viewer may see), `author`, the timestamps,
 `reply_count`, and per-viewer `can_edit`, `can_delete` and `is_own`. To
 attach API-created channels to your own objects, subclass
 `huddle.api.views.ChannelViewSet` and override `get_scope()`.
@@ -216,9 +306,9 @@ then call `huddle_connect()`, `huddle_receive(content)` and
 
 ## Message format
 
-Bodies are stored as plain text with tokens: `<@user-pk>` for mentions, and
-`<#kind:id>` reserved for future references to your own objects. Rendering
-escapes everything else, so there's no HTML sanitiser to keep patched.
+Bodies are stored as plain text with tokens: `<@user-pk>` for mentions and
+`<#kind:id>` for references to your own objects. Rendering escapes everything
+else, so there's no HTML sanitiser to keep patched.
 
 ## Settings
 
@@ -229,6 +319,8 @@ escapes everything else, so there's no HTML sanitiser to keep patched.
 | `HUDDLE_PAGE_SIZE` | `50` |
 | `HUDDLE_MAX_MESSAGE_LENGTH` | `10000` |
 | `HUDDLE_WEBSOCKET_URL` | `"/ws/huddle/"` |
+| `HUDDLE_REFERENCE_RESOLVERS` | `[]` (dotted paths to `ReferenceResolver` subclasses; earlier entries win conflicts) |
+| `HUDDLE_FREE_TYPED_MENTIONS` | `True` (typed `@handles` mention without picking) |
 
 ## Development
 

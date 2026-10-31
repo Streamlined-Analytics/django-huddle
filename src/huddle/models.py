@@ -21,6 +21,7 @@ from django.utils.translation import gettext_lazy as _
 
 from huddle.querysets import ChannelQuerySet
 from huddle.querysets import MessageQuerySet
+from huddle.querysets import MessageReferenceQuerySet
 
 
 class Channel(models.Model):
@@ -133,7 +134,7 @@ class Message(models.Model):
         related_name="replies",
     )
     body = models.TextField(
-        help_text=_("Raw text. Mentions are stored as <@user-pk> tokens; <#...> tokens are reserved for references."),
+        help_text=_("Raw text. Mentions are stored as <@user-pk> tokens and references as <#kind:id> tokens."),
     )
     created_at = models.DateTimeField(default=timezone.now, db_index=True)
     edited_at = models.DateTimeField(null=True, blank=True)
@@ -176,6 +177,49 @@ class Mention(models.Model):
 
     def __str__(self) -> str:
         return f"@{self.user} in {self.message_id}"
+
+
+class MessageReference(models.Model):
+    """A host object referenced from a message with ``#code``, stored as a ``<#kind:id>`` token.
+
+    Rows mirror the tokens the service wrote into the body, so hosts can list
+    where an object was discussed (``MessageReference.objects.for_target(obj)``).
+    Only tokens with a row render as links, which keeps references typed into
+    bodies before reference support existed from becoming live. ``content_type``
+    is set when the resolver returned a model instance.
+    """
+
+    message = models.ForeignKey(Message, on_delete=models.CASCADE, related_name="references")
+    kind = models.CharField(max_length=64)
+    object_id = models.CharField(max_length=64)
+    content_type = models.ForeignKey(
+        ContentType,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    target = GenericForeignKey("content_type", "object_id")
+    created_at = models.DateTimeField(default=timezone.now)
+
+    objects: ClassVar[MessageReferenceQuerySet] = MessageReferenceQuerySet.as_manager()  # type: ignore[assignment]
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["message", "kind", "object_id"], name="huddle_unique_reference"),
+        ]
+        indexes = [
+            models.Index(fields=["kind", "object_id"], name="huddle_reference_kind"),
+            models.Index(fields=["content_type", "object_id"], name="huddle_reference_target"),
+        ]
+
+    def __str__(self) -> str:
+        return f"#{self.kind}:{self.object_id} in {self.message_id}"
+
+    @property
+    def token(self) -> str:
+        """The ``kind:id`` text of this reference's token."""
+        return f"{self.kind}:{self.object_id}"
 
 
 class ThreadParticipant(models.Model):

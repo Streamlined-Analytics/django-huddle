@@ -19,6 +19,7 @@ urlpatterns = [
     path("c/<int:channel_pk>/join/", views.JoinChannelView.as_view(), name="join"),
     path("c/<int:channel_pk>/leave/", views.LeaveChannelView.as_view(), name="leave"),
     path("c/<int:channel_pk>/mentions/", views.MentionSearchView.as_view(), name="mentions"),
+    path("c/<int:channel_pk>/references/", views.ReferenceSearchView.as_view(), name="references"),
     path("m/<int:message_pk>/thread/", views.ThreadView.as_view(), name="thread"),
     path("m/<int:message_pk>/reply/", views.ReplyView.as_view(), name="reply"),
     path("m/<int:message_pk>/edit/", views.EditMessageView.as_view(), name="edit"),

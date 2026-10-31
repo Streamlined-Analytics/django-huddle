@@ -36,7 +36,7 @@ class ChatPayloads:
         return {"id": user.pk, "name": display_name(user)}
 
     def messages(self, messages: list[Message]) -> list[dict[str, Any]]:
-        """Several messages, resolving mentions in one query."""
+        """Several messages, resolving mentions and references in bulk."""
         return [self._message(view) for view in self.renderer.message_views(messages)]
 
     def message(self, message: Message) -> dict[str, Any]:
@@ -73,9 +73,10 @@ class ChatPayloads:
             "parent_id": message.parent_id,
             "author": self.person(message.author),
             "body": message.body,
-            "text": "" if deleted else self.renderer.editable_text(message),
+            "text": "" if deleted else view.text,
             "html": "" if deleted else str(view.html),
             "mention_ids": sorted(self.renderer.markup.mentioned_pks(message.body)),
+            "references": [reference.as_dict() for reference in view.references],
             "created_at": _iso(message.created_at),
             "edited_at": _iso(message.edited_at),
             "deleted_at": _iso(message.deleted_at),

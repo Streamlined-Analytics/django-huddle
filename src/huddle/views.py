@@ -15,6 +15,7 @@ from __future__ import annotations
 from typing import Any
 
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.exceptions import BadRequest
 from django.core.exceptions import PermissionDenied
 from django.db.models import Prefetch
 from django.db.models import Q
@@ -29,8 +30,10 @@ from django.views import View
 from django.views.generic import FormView
 
 from huddle.conf import get_policy
+from huddle.conf import get_reference_registry
 from huddle.conf import get_setting
 from huddle.exceptions import ChatPermissionDeniedError
+from huddle.exceptions import InvalidReferenceIdError
 from huddle.forms import ChannelForm
 from huddle.forms import DirectMessageForm
 from huddle.forms import MessageForm
@@ -44,6 +47,7 @@ from huddle.services import ChatService
 
 COMPONENTS = "huddle/components"
 MENTION_RESULTS_LIMIT = 8
+REFERENCE_RESULTS_LIMIT = 8
 
 
 class HuddleViewMixin(LoginRequiredMixin):
@@ -53,11 +57,16 @@ class HuddleViewMixin(LoginRequiredMixin):
     kwargs: dict[str, Any]
 
     def dispatch(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponseBase:
-        """Turn service permission errors into 403s (lookups have already 404'd invisible objects)."""
+        """Turn service permission errors into 403s and unusable picked references into 400s.
+
+        Lookups have already 404'd invisible objects.
+        """
         try:
             return super().dispatch(request, *args, **kwargs)
         except ChatPermissionDeniedError as error:
             raise PermissionDenied(str(error)) from error
+        except InvalidReferenceIdError as error:
+            raise BadRequest(str(error)) from error
 
     @property
     def chat_user(self) -> Any:
@@ -188,7 +197,11 @@ class PostMessageView(HuddleViewMixin, View):
         if not form.is_valid():
             return self.chat_response("composer", {"channel": channel, "form": form, "can_post": True})
         message = self.service.post_message(
-            self.chat_user, channel, form.cleaned_data["text"], mentioned=form.cleaned_data["mentions"]
+            self.chat_user,
+            channel,
+            form.cleaned_data["text"],
+            mentioned=form.cleaned_data["mentions"],
+            references=form.cleaned_data["references"],
         )
         return self.chat_response(
             "posted",
@@ -238,6 +251,7 @@ class ReplyView(ThreadView):
             parent.channel,
             form.cleaned_data["text"],
             mentioned=form.cleaned_data["mentions"],
+            references=form.cleaned_data["references"],
             parent=parent,
         )
         return self.chat_response(
@@ -259,11 +273,13 @@ class EditMessageView(HuddleViewMixin, View):
         message = self.get_message()
         if not get_policy().can_edit_message(self.chat_user, message):
             raise PermissionDenied
+        message_view = self.renderer.message_view(message)
         form = MessageForm(
             channel=message.channel,
             initial={
-                "text": self.renderer.editable_text(message),
+                "text": message_view.text,
                 "mentions": list(message.mentions.values_list("user", flat=True)),
+                "references": [reference.token for reference in message_view.references],
             },
         )
         return self.chat_response("edit_form", {"message": message, "form": form})
@@ -275,7 +291,11 @@ class EditMessageView(HuddleViewMixin, View):
         if not form.is_valid():
             return self.chat_response("edit_form", {"message": message, "form": form})
         self.service.edit_message(
-            self.chat_user, message, form.cleaned_data["text"], mentioned=form.cleaned_data["mentions"]
+            self.chat_user,
+            message,
+            form.cleaned_data["text"],
+            mentioned=form.cleaned_data["mentions"],
+            references=form.cleaned_data["references"],
         )
         return self.chat_response("message", {"message_view": self.renderer.message_view(message)})
 
@@ -315,6 +335,17 @@ class MentionSearchView(HuddleViewMixin, View):
         if not query:
             return True
         return query in display_name(user).lower() or query in str(getattr(user, "email", "")).lower()
+
+
+class ReferenceSearchView(HuddleViewMixin, View):
+    """Autocomplete host objects that may be ``#``-referenced in a channel."""
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        """Ask every configured resolver for matches to ``q``, in settings order."""
+        channel = self.get_channel()
+        query = request.GET.get("q", "").strip().lstrip("#")
+        references = get_reference_registry().search(channel, self.chat_user, query, limit=REFERENCE_RESULTS_LIMIT)
+        return self.chat_response("reference_results", {"references": references})
 
 
 class MarkReadView(HuddleViewMixin, View):

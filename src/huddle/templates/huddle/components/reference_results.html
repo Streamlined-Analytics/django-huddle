@@ -1,0 +1,6 @@
+{% load i18n %}
+{% for reference in references %}
+  <button type="button" class="huddle-mention-option huddle-reference-option" data-token="{{ reference.token }}" data-code="{{ reference.code }}" hx-on:click="huddleReferencePick(this)">{{ reference.label }}</button>
+{% empty %}
+  <span class="huddle-mention-empty">{% translate "No matches" %}</span>
+{% endfor %}

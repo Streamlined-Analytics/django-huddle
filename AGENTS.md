@@ -29,6 +29,9 @@ pre-commit run --all-files                     # before every commit
    view models; the REST API and websocket JSON use `ChatPayloads`. Keep them in
    step.
 6. **Stored bodies are tokens plus plain text** (ADR-0004). Never store HTML.
+7. **References are host objects, checked by their resolver** (ADR-0007,
+   ADR-0008). Resolve them for the viewer at render time, in bulk, and render
+   anything not visible as a neutral placeholder.
 
 ## Style
 

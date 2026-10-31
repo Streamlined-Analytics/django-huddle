@@ -15,10 +15,16 @@ from huddle.forms import ChannelForm
 
 
 class MessageInputSerializer(serializers.Serializer[Any]):
-    """A new or edited message. ``mention_ids`` are the users the client chose to @mention."""
+    """A new or edited message.
+
+    ``mention_ids`` are the users the client chose to @mention, and
+    ``reference_ids`` the ``kind:id`` tokens it chose for ``#codes`` (from
+    ``GET /channels/{id}/references/``).
+    """
 
     text = serializers.CharField(trim_whitespace=True)
     mention_ids = serializers.ListField(child=serializers.CharField(), required=False, default=list)
+    reference_ids = serializers.ListField(child=serializers.CharField(), required=False, default=list)
     parent_id = serializers.IntegerField(required=False, allow_null=True, default=None)
 
     def validate_text(self, value: str) -> str:

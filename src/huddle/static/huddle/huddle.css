@@ -147,6 +147,25 @@
   padding: 0 0.15rem;
 }
 
+.huddle-reference {
+  background: #ecfdf5;
+  color: #065f46;
+  border-radius: 0.25rem;
+  padding: 0 0.15rem;
+  text-decoration: none;
+}
+
+a.huddle-reference:hover,
+a.huddle-reference:focus {
+  text-decoration: underline;
+}
+
+.huddle-reference--unavailable {
+  background: var(--huddle-surface-alt);
+  color: inherit;
+  font-style: italic;
+}
+
 .huddle-composer {
   display: flex;
   gap: 0.5rem;

@@ -3,4 +3,5 @@
   <div class="huddle-mention-results" hidden></div>
   {{ form.text }}
   <span class="huddle-composer__mentions" data-mention-url="{% url 'huddle:mentions' channel.pk %}">{{ form.mentions }}</span>
+  {% if form.references_enabled %}<span class="huddle-composer__references" data-reference-url="{% url 'huddle:references' channel.pk %}">{{ form.references }}</span>{% endif %}
 </div>

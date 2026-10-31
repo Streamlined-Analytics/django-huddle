@@ -21,6 +21,7 @@ from django.db.models.functions import Coalesce
 if TYPE_CHECKING:
     from huddle.models import Channel  # noqa: F401
     from huddle.models import Message
+    from huddle.models import MessageReference  # noqa: F401
 
 
 class ChannelQuerySet(models.QuerySet["Channel"]):
@@ -135,3 +136,26 @@ class MessageQuerySet(models.QuerySet["Message"]):
                 Q(created_at__lt=before.created_at) | Q(created_at=before.created_at, pk__lt=before.pk)
             )
         return list(reversed(queryset[:size]))
+
+
+class MessageReferenceQuerySet(models.QuerySet["MessageReference"]):
+    """Lookups of ``#`` references from messages to host objects."""
+
+    def for_target(self, target: models.Model) -> MessageReferenceQuerySet:
+        """References to the host object ``target`` (matched by content type and primary key).
+
+        Used by: host projects ("discussed in chat" on an item).
+        """
+        return self.filter(content_type=ContentType.objects.get_for_model(target), object_id=str(target.pk))
+
+    def visible_to(self, user: Any) -> MessageReferenceQuerySet:
+        """References in messages ``user`` may read: visible channels, not deleted.
+
+        Used by: host projects, before listing where an object was discussed.
+        """
+        from huddle.models import Channel  # noqa: PLC0415
+
+        return self.filter(
+            message__channel__in=Channel.objects.visible_to(user),
+            message__deleted_at__isnull=True,
+        )
