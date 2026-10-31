@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Fixed a flaky view test (`TestPages::test_pagination`, about 1 run in 30):
+  it searched the page for two-character message bodies such as `m2`, which
+  the random CSRF token sometimes contained. It now checks each message's
+  element id. Test-only change; no package behaviour changed.
+
 ## 0.2.1 (2026-10-31)
 
 - Typed full names mention: `@Ben Atkinson` (case-insensitive) mentions the one

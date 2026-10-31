@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from django.middleware import csrf
 from django.test import override_settings
 from django.urls import reverse
 
@@ -23,6 +24,27 @@ def alice_client(client, alice):
 def bob_client(client, bob):
     client.force_login(bob)
     return client
+
+
+def _shows(content: str, message: Message) -> bool:
+    """Whether ``content`` renders ``message``, matched by its element id.
+
+    Bodies like ``m2`` are not unique enough to search for: the page's random
+    CSRF token contains any given two characters about 1.6% of the time.
+    """
+    return f'id="huddle-message-{message.pk}"' in content
+
+
+def _assert_pages_by_two(service, general, alice, client) -> None:
+    """Post five messages; the page shows the latest two, ``?before=`` the two before."""
+    messages = [service.post_message(alice, general, f"m{n}") for n in range(5)]
+    page = client.get(reverse("huddle:channel", args=[general.pk])).content.decode()
+    assert [_shows(page, message) for message in messages] == [False, False, False, True, True]
+    older = client.get(
+        reverse("huddle:channel", args=[general.pk]), {"before": messages[3].pk}, **HTMX
+    ).content.decode()
+    assert [_shows(older, message) for message in messages] == [False, True, True, False, False]
+    assert "Load older messages" in older
 
 
 class TestAccess:
@@ -69,14 +91,13 @@ class TestPages:
 
     @override_settings(HUDDLE_PAGE_SIZE=2)
     def test_pagination(self, service, general, alice, alice_client):
-        messages = [service.post_message(alice, general, f"m{n}") for n in range(5)]
-        page = alice_client.get(reverse("huddle:channel", args=[general.pk])).content.decode()
-        assert "m4" in page and "m2" not in page
-        older = alice_client.get(
-            reverse("huddle:channel", args=[general.pk]), {"before": messages[3].pk}, **HTMX
-        ).content.decode()
-        assert "m2" in older and "m1" in older and "m3" not in older
-        assert "Load older messages" in older
+        _assert_pages_by_two(service, general, alice, alice_client)
+
+    @override_settings(HUDDLE_PAGE_SIZE=2)
+    def test_pagination_ignores_csrf_token_text(self, monkeypatch, service, general, alice, alice_client):
+        hostile_token = ("m0m1m2m3m4" * 7)[:64]
+        monkeypatch.setattr(csrf, "_mask_cipher_secret", lambda secret: hostile_token)
+        _assert_pages_by_two(service, general, alice, alice_client)
 
     def test_sidebar_unread_counts(self, service, general, alice, bob, alice_client):
         other = service.create_channel(alice, "other")
