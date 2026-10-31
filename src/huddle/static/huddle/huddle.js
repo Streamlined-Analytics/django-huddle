@@ -1,6 +1,7 @@
 "use strict";
 
 const HUDDLE_MENTION_PATTERN = /(^|\s)@([^\s@]{0,40})$/;
+const HUDDLE_REFERENCE_PATTERN = /(^|\s)#([^\s#]{0,40})$/;
 
 function huddleComposerKeydown(event, textarea) {
   const results = textarea.form.querySelector(".huddle-mention-results");
@@ -15,7 +16,7 @@ function huddleComposerKeydown(event, textarea) {
   if (results && !results.hidden) {
     const first = results.querySelector(".huddle-mention-option");
     if (first) {
-      huddleMentionPick(first);
+      first.click();
       return;
     }
   }
@@ -26,40 +27,57 @@ function huddleComposerKeydown(event, textarea) {
 
 function huddleMentionInput(textarea) {
   const beforeCaret = textarea.value.slice(0, textarea.selectionStart);
-  const match = beforeCaret.match(HUDDLE_MENTION_PATTERN);
   const form = textarea.form;
-  if (!match) {
-    huddleHideMentions(form);
+  const mention = beforeCaret.match(HUDDLE_MENTION_PATTERN);
+  if (mention) {
+    huddleShowResults(form, form.querySelector(".huddle-composer__mentions").dataset.mentionUrl, mention[2]);
     return;
   }
-  const holder = form.querySelector(".huddle-composer__mentions");
+  const reference = beforeCaret.match(HUDDLE_REFERENCE_PATTERN);
+  const references = form.querySelector(".huddle-composer__references");
+  if (reference && references) {
+    huddleShowResults(form, references.dataset.referenceUrl, reference[2]);
+    return;
+  }
+  huddleHideMentions(form);
+}
+
+function huddleShowResults(form, url, query) {
   const results = form.querySelector(".huddle-mention-results");
-  const url = `${holder.dataset.mentionUrl}?q=${encodeURIComponent(match[2])}`;
   results.hidden = false;
-  htmx.ajax("GET", url, { target: results, swap: "innerHTML" });
+  htmx.ajax("GET", `${url}?q=${encodeURIComponent(query)}`, { target: results, swap: "innerHTML" });
 }
 
 function huddleMentionPick(option) {
   const form = option.closest("form");
+  huddleInsertPick(form, HUDDLE_MENTION_PATTERN, `@${option.dataset.name}`);
+  huddleAddHidden(form.querySelector(".huddle-composer__mentions"), "mentions", option.dataset.pk);
+}
+
+function huddleReferencePick(option) {
+  const form = option.closest("form");
+  huddleInsertPick(form, HUDDLE_REFERENCE_PATTERN, `#${option.dataset.code}`);
+  huddleAddHidden(form.querySelector(".huddle-composer__references"), "references", option.dataset.token);
+}
+
+function huddleInsertPick(form, pattern, text) {
   const textarea = form.querySelector("textarea");
   const caret = textarea.selectionStart;
-  const beforeCaret = textarea.value.slice(0, caret).replace(HUDDLE_MENTION_PATTERN, `$1@${option.dataset.name} `);
+  const beforeCaret = textarea.value.slice(0, caret).replace(pattern, (typed, lead) => `${lead}${text} `);
   textarea.value = beforeCaret + textarea.value.slice(caret);
   textarea.setSelectionRange(beforeCaret.length, beforeCaret.length);
-  huddleAddMention(form, option.dataset.pk);
   huddleHideMentions(form);
   textarea.focus();
 }
 
-function huddleAddMention(form, pk) {
-  const holder = form.querySelector(".huddle-composer__mentions");
-  if (holder.querySelector(`input[value="${CSS.escape(pk)}"]`)) {
+function huddleAddHidden(holder, name, value) {
+  if (holder.querySelector(`input[value="${CSS.escape(value)}"]`)) {
     return;
   }
   const input = document.createElement("input");
   input.type = "hidden";
-  input.name = "mentions";
-  input.value = pk;
+  input.name = name;
+  input.value = value;
   holder.appendChild(input);
 }
 

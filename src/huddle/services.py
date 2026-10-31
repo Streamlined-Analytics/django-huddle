@@ -4,13 +4,21 @@ The service checks the policy, keeps denormalised counters and read state in
 step, and — once the transaction commits — broadcasts to websockets and sends
 the public signals. Views and host code should call it rather than writing
 huddle models directly.
+
+Encoding a message is a service job, not a markup job, because it needs the
+database: picked mentions are limited to ``mentionable_users``, free-typed
+``@handles`` are matched against them, and ``#codes`` are resolved by the
+configured reference resolvers for the sender in that channel. The markup
+then only substitutes what the service found.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable
+from dataclasses import dataclass
 from typing import Any
 
+from django.contrib.contenttypes.models import ContentType
 from django.db import models
 from django.db import transaction
 from django.db.models import F
@@ -18,18 +26,39 @@ from django.utils import timezone
 
 from huddle import signals
 from huddle.conf import get_policy
+from huddle.conf import get_reference_registry
+from huddle.conf import get_setting
 from huddle.exceptions import ChatPermissionDeniedError
 from huddle.exceptions import InvalidDirectMessageError
 from huddle.exceptions import NestedThreadError
 from huddle.exceptions import ThreadChannelMismatchError
 from huddle.markup import MessageMarkup
+from huddle.markup import mention_handles
 from huddle.models import Channel
 from huddle.models import ChannelMembership
 from huddle.models import Mention
 from huddle.models import Message
+from huddle.models import MessageReference
 from huddle.models import ThreadParticipant
 from huddle.policy import ChatPolicy
 from huddle.realtime import Broadcaster
+from huddle.references import Reference
+from huddle.references import ReferenceRegistry
+
+MAX_RESOLVED_CODES = 50
+
+
+@dataclass(frozen=True)
+class EncodedMessage:
+    """A body ready to store, with the users and references the service allowed into it."""
+
+    body: str
+    mentioned: list[Any]
+    references: list[Reference]
+
+
+def _unique_users(users: Iterable[Any]) -> list[Any]:
+    return list({user.pk: user for user in users}.values())
 
 
 class ChatService:
@@ -40,10 +69,12 @@ class ChatService:
         policy: ChatPolicy | None = None,
         markup: MessageMarkup | None = None,
         broadcaster: Broadcaster | None = None,
+        references: ReferenceRegistry | None = None,
     ) -> None:
         self.policy = policy or get_policy()
         self.markup = markup or MessageMarkup()
         self.broadcaster = broadcaster or Broadcaster()
+        self.references = references if references is not None else get_reference_registry()
 
     def create_channel(
         self,
@@ -110,7 +141,7 @@ class ChatService:
             ignore_conflicts=True,
         )
 
-    def post_message(
+    def post_message(  # noqa: PLR0913 - keyword-only options of a public method
         self,
         user: Any,
         channel: Channel,
@@ -118,44 +149,86 @@ class ChatService:
         *,
         mentioned: Iterable[Any] = (),
         parent: Message | None = None,
+        references: Iterable[str] = (),
     ) -> Message:
-        """Post ``text`` to ``channel``, or as a reply in ``parent``'s thread."""
+        """Post ``text`` to ``channel``, or as a reply in ``parent``'s thread.
+
+        ``mentioned`` are the users picked from autocomplete; ``references``
+        are the ``kind:id`` tokens picked for ``#codes``. Free-typed handles
+        and codes are resolved too (see :meth:`encode`).
+        """
         if not self.policy.can_post(user, channel):
             raise ChatPermissionDeniedError("post in", user.pk, channel.pk)
         if parent is not None:
             self._check_thread_parent(parent, channel)
-        mention_users = self._allowed_mentions(channel, mentioned)
+        encoded = self.encode(user, channel, text, mentioned=mentioned, references=references)
         now = timezone.now()
         with transaction.atomic():
             message = Message.objects.create(
                 channel=channel,
                 author=user,
                 parent=parent,
-                body=self.markup.encode(text, mention_users),
+                body=encoded.body,
                 created_at=now,
             )
-            new_mentions = self._record_mentions(message, mention_users)
+            new_mentions = self._record_mentions(message, encoded.mentioned)
+            new_references = self._record_references(message, encoded.references)
             self._mark_author_read(user, channel, now)
             Channel.objects.filter(pk=channel.pk).update(last_message_at=now)
             if parent is not None:
                 self._record_reply(parent, user, new_mentions, now)
-            transaction.on_commit(lambda: self._announce_post(message, new_mentions))
+            transaction.on_commit(lambda: self._announce_post(message, new_mentions, new_references))
         return message
 
-    def edit_message(self, user: Any, message: Message, text: str, *, mentioned: Iterable[Any] = ()) -> Message:
-        """Replace a message's text. Newly mentioned users are notified; existing mentions are not repeated."""
+    def edit_message(
+        self,
+        user: Any,
+        message: Message,
+        text: str,
+        *,
+        mentioned: Iterable[Any] = (),
+        references: Iterable[str] = (),
+    ) -> Message:
+        """Replace a message's text. Newly mentioned users and newly referenced objects are announced once."""
         if not self.policy.can_edit_message(user, message):
             raise ChatPermissionDeniedError("edit", user.pk, message.pk)
-        mention_users = self._allowed_mentions(message.channel, mentioned)
+        encoded = self.encode(user, message.channel, text, mentioned=mentioned, references=references)
         with transaction.atomic():
-            message.body = self.markup.encode(text, mention_users)
+            message.body = encoded.body
             message.edited_at = timezone.now()
             message.save(update_fields=["body", "edited_at"])
-            new_mentions = self._record_mentions(message, mention_users)
+            new_mentions = self._record_mentions(message, encoded.mentioned)
+            new_references = self._record_references(message, encoded.references)
             if message.parent is not None:
                 self._follow_thread(message.parent, new_mentions)
-            transaction.on_commit(lambda: self._announce_edit(message, new_mentions))
+            transaction.on_commit(lambda: self._announce_edit(message, new_mentions, new_references))
         return message
+
+    def encode(
+        self,
+        user: Any,
+        channel: Channel,
+        text: str,
+        *,
+        mentioned: Iterable[Any] = (),
+        references: Iterable[str] = (),
+    ) -> EncodedMessage:
+        """Work out what ``text`` from ``user`` may mention and reference in ``channel``, and encode it.
+
+        - Picked users count only if the policy lets them be mentioned here.
+        - A free-typed ``@handle`` counts if exactly one mentionable user owns it.
+        - Picked references count only if the sender may see them here; other
+          ``#codes`` go to the resolvers, first in settings order wins.
+          Unknown or unauthorised codes stay plain text.
+        """
+        picked_users = self._allowed_mentions(channel, mentioned)
+        handle_users = self._handle_owners(channel, self.markup.handles(text, picked_users))
+        found = self._found_references(user, channel, text, references)
+        return EncodedMessage(
+            body=self.markup.encode(text, picked_users, handles=handle_users, references=found),
+            mentioned=_unique_users([*picked_users, *handle_users.values()]),
+            references=list(found.values()),
+        )
 
     def delete_message(self, user: Any, message: Message) -> None:
         """Soft-delete a message: its text and mentions are removed, a placeholder remains."""
@@ -166,6 +239,7 @@ class ChatService:
             message.deleted_at = timezone.now()
             message.save(update_fields=["body", "deleted_at"])
             message.mentions.all().delete()
+            message.references.all().delete()
             transaction.on_commit(lambda: self._broadcast(message, "deleted"))
 
     def mark_read(self, user: Any, channel: Channel) -> None:
@@ -187,6 +261,52 @@ class ChatService:
         if not pks:
             return []
         return list(self.policy.mentionable_users(channel).filter(pk__in=pks))
+
+    def _handle_owners(self, channel: Channel, handles: set[str]) -> dict[str, Any]:
+        """Each handle mapped to the one mentionable user who owns it. Ambiguous handles map to nobody."""
+        if not handles or not get_setting("HUDDLE_FREE_TYPED_MENTIONS"):
+            return {}
+        owners: dict[str, dict[Any, Any]] = {handle: {} for handle in handles}
+        for candidate in self.policy.mentionable_users(channel).iterator():
+            for handle in mention_handles(candidate) & handles:
+                owners[handle][candidate.pk] = candidate
+        return {handle: next(iter(users.values())) for handle, users in owners.items() if len(users) == 1}
+
+    def _found_references(self, user: Any, channel: Channel, text: str, picks: Iterable[str]) -> dict[str, Reference]:
+        """Typed ``#codes`` mapped to the references they encode to: exact picks first, then free-typed lookups.
+
+        At most ``MAX_RESOLVED_CODES`` unpicked codes are looked up per message,
+        so a message full of ``#`` words cannot fan out into thousands of queries.
+        """
+        if not self.references:
+            return {}
+        codes = self.markup.reference_codes(text)
+        if not codes:
+            return {}
+        picked = {reference.code: reference for reference in self.references.visible(channel, user, picks).values()}
+        unpicked = [code for code in codes if code not in picked][:MAX_RESOLVED_CODES]
+        return {**self.references.resolve_codes(channel, user, unpicked), **picked}
+
+    def _record_references(
+        self, message: Message, references: list[Reference]
+    ) -> list[tuple[MessageReference, Reference]]:
+        """Make the message's reference rows match its body. Returns the rows that are new."""
+        if not self.references:
+            return []
+        in_body = set(self.markup.referenced_tokens(message.body))
+        wanted = {reference.token: reference for reference in references if reference.token in in_body}
+        existing = {row.token: row.pk for row in message.references.all()}
+        stale = [pk for token, pk in existing.items() if token not in wanted]
+        MessageReference.objects.filter(pk__in=stale).delete()
+        new = [reference for token, reference in wanted.items() if token not in existing]
+        rows = MessageReference.objects.bulk_create([self._reference_row(message, reference) for reference in new])
+        return list(zip(rows, new, strict=True))
+
+    @staticmethod
+    def _reference_row(message: Message, reference: Reference) -> MessageReference:
+        target = reference.target
+        content_type = ContentType.objects.get_for_model(target) if isinstance(target, models.Model) else None
+        return MessageReference(message=message, kind=reference.kind, object_id=reference.id, content_type=content_type)
 
     def _record_mentions(self, message: Message, users: list[Any]) -> list[Any]:
         mentioned_pks = self.markup.mentioned_pks(message.body)
@@ -215,12 +335,18 @@ class ChatService:
             ignore_conflicts=True,
         )
 
-    def _announce_post(self, message: Message, new_mentions: list[Any]) -> None:
+    def _announce_post(
+        self,
+        message: Message,
+        new_mentions: list[Any],
+        new_references: list[tuple[MessageReference, Reference]],
+    ) -> None:
         self._broadcast(message, "created")
         member_ids = list(message.channel.memberships.values_list("user_id", flat=True))
         self.broadcaster.channel_activity(channel_id=message.channel_id, user_ids=member_ids)
         signals.message_posted.send(Message, message=message, channel=message.channel, author=message.author)
         self._send_mentions(message, new_mentions)
+        self._send_references(message, new_references)
         if message.parent is not None:
             followers = ThreadParticipant.objects.filter(thread=message.parent).select_related("user")
             recipients = [participant for participant in followers if participant.user_id != message.author_id]
@@ -231,9 +357,19 @@ class ChatService:
                 recipients=[participant.user for participant in recipients],
             )
 
-    def _announce_edit(self, message: Message, new_mentions: list[Any]) -> None:
+    def _announce_edit(
+        self,
+        message: Message,
+        new_mentions: list[Any],
+        new_references: list[tuple[MessageReference, Reference]],
+    ) -> None:
         self._broadcast(message, "updated")
         self._send_mentions(message, new_mentions)
+        self._send_references(message, new_references)
+
+    def _send_references(self, message: Message, references: list[tuple[MessageReference, Reference]]) -> None:
+        for row, reference in references:
+            signals.reference_added.send(Message, message=message, reference=row, target=reference.target)
 
     def _send_mentions(self, message: Message, users: list[Any]) -> None:
         for user in users:

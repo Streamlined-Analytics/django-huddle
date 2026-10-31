@@ -52,3 +52,47 @@ class InvalidDirectMessageError(HuddleError):
 
     def __init__(self, user_id: Any) -> None:
         super().__init__(f"User {user_id} asked for a direct message with nobody else.", user_id=user_id)
+
+
+class InvalidReferenceResolverError(HuddleError):
+    """An entry in ``HUDDLE_REFERENCE_RESOLVERS`` is not a ``ReferenceResolver`` subclass."""
+
+    def __init__(self, path: str, got: Any) -> None:
+        super().__init__(
+            f"HUDDLE_REFERENCE_RESOLVERS entry {path!r} must be a ReferenceResolver subclass, got {got!r}.",
+            path=path,
+            got=repr(got),
+        )
+
+
+class InvalidReferenceKindError(HuddleError):
+    """A resolver's ``kind`` is empty or cannot appear inside a ``<#kind:id>`` token."""
+
+    def __init__(self, resolver: str, kind: Any) -> None:
+        super().__init__(
+            f"Reference resolver {resolver} has kind {kind!r}; use letters, digits, '_' or '-'.",
+            resolver=resolver,
+            kind=repr(kind),
+        )
+
+
+class DuplicateReferenceKindError(HuddleError):
+    """Two configured resolvers claim the same ``kind``."""
+
+    def __init__(self, kind: str, resolvers: list[str]) -> None:
+        super().__init__(
+            f"Reference kind {kind!r} is claimed by more than one resolver: {', '.join(resolvers)}.",
+            kind=kind,
+            resolvers=resolvers,
+        )
+
+
+class UntokenisableReferenceError(HuddleError):
+    """A resolver returned an object whose id cannot be stored in a ``<#kind:id>`` token."""
+
+    def __init__(self, kind: str, object_id: str) -> None:
+        super().__init__(
+            f"Reference {kind}:{object_id!r} has an id with whitespace or '>' and cannot be stored.",
+            kind=kind,
+            object_id=object_id,
+        )

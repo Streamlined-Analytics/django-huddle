@@ -72,7 +72,7 @@ package = true
 
 [tool.ruff]
 line-length = 120
-extend-exclude = [ "src/huddle/migrations" ]
+extend-exclude = [ "example/migrations", "src/huddle/migrations" ]
 lint.select = [
   "B",   # flake8-bugbear
   "C90", # mccabe complexity

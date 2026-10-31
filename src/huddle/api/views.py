@@ -27,6 +27,7 @@ from huddle.api.serializers import ChannelInputSerializer
 from huddle.api.serializers import DirectInputSerializer
 from huddle.api.serializers import MessageInputSerializer
 from huddle.conf import get_policy
+from huddle.conf import get_reference_registry
 from huddle.conf import get_setting
 from huddle.exceptions import ChatPermissionDeniedError
 from huddle.exceptions import HuddleError
@@ -41,6 +42,7 @@ from huddle.services import ChatService
 
 MAX_PAGE_SIZE = 200
 MENTION_RESULTS_LIMIT = 8
+REFERENCE_RESULTS_LIMIT = 8
 
 
 class HuddleAPIViewSet(viewsets.ViewSet):
@@ -199,6 +201,14 @@ class ChannelViewSet(HuddleAPIViewSet):
         matches = [user for user in people if not query or query in display_name(user).lower()]
         return Response([self.payloads.person(user) for user in matches[:MENTION_RESULTS_LIMIT]])
 
+    @action(detail=True, methods=["get"])
+    def references(self, request: Request, pk: str) -> Response:
+        """Host objects that may be ``#``-referenced here, filtered by ``?q=``."""
+        channel = self.get_channel()
+        query = request.query_params.get("q", "").strip().lstrip("#")
+        found = get_reference_registry().search(channel, self.chat_user, query, limit=REFERENCE_RESULTS_LIMIT)
+        return Response([reference.as_dict() for reference in found])
+
     def _post_message(self, channel: Channel) -> Response:
         serializer = MessageInputSerializer(data=self.request.data)
         serializer.is_valid(raise_exception=True)
@@ -213,6 +223,7 @@ class ChannelViewSet(HuddleAPIViewSet):
             channel,
             data["text"],
             mentioned=self.users_by_ids(data["mention_ids"]),
+            references=data["reference_ids"],
             parent=parent,
         )
         return Response(self.payloads.message(message), status=status.HTTP_201_CREATED)
@@ -226,13 +237,17 @@ class MessageViewSet(HuddleAPIViewSet):
         return Response(self.payloads.message(self.get_message()))
 
     def partial_update(self, request: Request, pk: str) -> Response:
-        """Edit a message's text (and mentions)."""
+        """Edit a message's text (and mentions and references)."""
         message = self.get_message()
         serializer = MessageInputSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         self.service.edit_message(
-            self.chat_user, message, data["text"], mentioned=self.users_by_ids(data["mention_ids"])
+            self.chat_user,
+            message,
+            data["text"],
+            mentioned=self.users_by_ids(data["mention_ids"]),
+            references=data["reference_ids"],
         )
         return Response(self.payloads.message(message))
 

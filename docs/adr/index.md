@@ -12,3 +12,6 @@ superseded decision gets a new record.
 | [ADR-0004](0004-token-message-format.md) | Store bodies as escaped text plus `<@pk>` / `<#kind:id>` tokens |
 | [ADR-0005](0005-overridable-components-and-api.md) | Per-component templates, an optional REST API and a JSON websocket mode |
 | [ADR-0006](0006-django-6-floor.md) | Django 6.0 is the minimum supported version |
+| [ADR-0007](0007-pluggable-reference-resolvers.md) | `#` references resolve through pluggable per-kind resolvers; settings order breaks ties; no new policy hook |
+| [ADR-0008](0008-store-references-by-id-recheck-at-render.md) | Store references by id, record `MessageReference` rows, re-check visibility at render |
+| [ADR-0009](0009-free-typed-mention-handles.md) | Free-typed `@handles` mention when exactly one mentionable user fits |

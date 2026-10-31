@@ -13,13 +13,33 @@ from django.core.validators import MaxLengthValidator
 from django.utils.translation import gettext_lazy as _
 
 from huddle.conf import get_policy
+from huddle.conf import get_reference_registry
 from huddle.conf import get_setting
 from huddle.markup import display_name
 from huddle.models import Channel
 
 
+class ReferenceTokensField(forms.Field):
+    """The ``kind:id`` tokens the ``#`` autocomplete picked, as hidden inputs.
+
+    Values are not trusted: the service keeps only those the sender may see.
+    """
+
+    widget = forms.MultipleHiddenInput
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(required=False, **kwargs)
+
+    def to_python(self, value: Any) -> list[str]:
+        """Every submitted value as a non-empty string."""
+        if not value:
+            return []
+        values = [value] if isinstance(value, str) else value
+        return [str(item) for item in values if item]
+
+
 class MessageForm(forms.Form):
-    """Compose or edit a message. ``mentions`` holds the ids the autocomplete picked."""
+    """Compose or edit a message. ``mentions`` and ``references`` hold what the autocomplete picked."""
 
     text = forms.CharField(
         label=_("Message"),
@@ -40,10 +60,12 @@ class MessageForm(forms.Form):
         required=False,
         widget=forms.MultipleHiddenInput,
     )
+    references = ReferenceTokensField()
 
     def __init__(self, *args: Any, channel: Channel, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.channel = channel
+        self.references_enabled = bool(get_reference_registry())
         max_length = get_setting("HUDDLE_MAX_MESSAGE_LENGTH")
         text_field = self.fields["text"]
         text_field.validators.append(MaxLengthValidator(max_length))
