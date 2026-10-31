@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.0 (unreleased)
+## 0.2.0 (2026-10-31)
 
 - `#` references to host objects. Register `huddle.references.ReferenceResolver`
   subclasses in `HUDDLE_REFERENCE_RESOLVERS`; `#codes` are resolved for the
@@ -21,7 +21,7 @@
   part mentions that user without picking; ambiguous handles mention nobody.
   Turn off with `HUDDLE_FREE_TYPED_MENTIONS = False`.
 
-## 0.1.0 (unreleased)
+## 0.1.0 (2026-10-31)
 
 First release.
 
