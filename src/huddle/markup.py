@@ -43,7 +43,7 @@ FORGEABLE_TOKEN = re.compile(r"<([@#])([^>\s]+)>")
 _AFTER_SPACE = r"(?<![^\s(\[])"
 HANDLE = re.compile(_AFTER_SPACE + r"@(\w(?:[\w.\-]*\w)?)")
 HANDLE_BODY = re.compile(r"\w(?:[\w.\-]*\w)?")
-MENTION_START = re.compile(_AFTER_SPACE + r"@(?=\w)")
+MENTION_START = re.compile(_AFTER_SPACE + r"@(?=\S)")
 WORD_CHARACTER = re.compile(r"\w")
 REFERENCE_CODE = re.compile(_AFTER_SPACE + r"#(\w(?:[\w.\-/]*\w)?)")
 

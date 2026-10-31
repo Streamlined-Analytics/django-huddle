@@ -231,3 +231,11 @@ def test_full_name_matching_survives_case_changing_lengths():
 def test_full_names_with_regex_characters_match_literally():
     odd = SimpleNamespace(pk=3)
     assert markup.encode("@a.b (c) and @axb (c)", handles={"a.b (c)": odd}) == "<@3> and @axb (c)"
+
+
+def test_edit_keeps_mention_of_a_name_starting_with_punctuation(service, general, alice):
+    quoted = make_person("quoted", "'Ann", "Lee'")
+    message = service.post_message(alice, general, "hi @'Ann Lee'", mentioned=[quoted])
+    assert message.body == f"hi <@{quoted.pk}>"
+    service.edit_message(alice, message, "hi again @'Ann Lee'")
+    assert message.body == f"hi again <@{quoted.pk}>"
