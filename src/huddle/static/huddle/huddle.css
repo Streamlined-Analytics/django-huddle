@@ -265,6 +265,10 @@ a.huddle-reference:focus {
   color: var(--huddle-muted);
 }
 
+.huddle-empty:has(~ .huddle-message) {
+  display: none;
+}
+
 .huddle-older {
   display: block;
   margin: 0.5rem auto;

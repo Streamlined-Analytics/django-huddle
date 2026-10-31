@@ -4,7 +4,7 @@ requires = [ "hatchling" ]
 
 [project]
 name = "django-huddle"
-version = "0.2.1"
+version = "0.2.2"
 description = "Slack-style team chat for Django: channels, direct messages, threads and @mentions over Django Channels."
 readme = "README.md"
 license = { text = "MIT" }

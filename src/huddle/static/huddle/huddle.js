@@ -126,12 +126,21 @@ function huddleAfterOobSwap(event) {
   if (!target || !target.classList.contains("huddle-timeline")) {
     return;
   }
+  huddleClearEmptyState(target);
   if (target.dataset.huddleStick) {
     huddleScrollToEnd(target);
   }
   if (document.visibilityState === "visible") {
     htmx.ajax("POST", target.dataset.readUrl, { source: target, swap: "none" });
   }
+}
+
+function huddleClearEmptyState(timeline) {
+  timeline.querySelectorAll(".huddle-empty").forEach(huddleRemoveElement);
+}
+
+function huddleRemoveElement(element) {
+  element.remove();
 }
 
 function huddleResubscribe() {
