@@ -23,6 +23,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable
 from collections.abc import Mapping
+from itertools import count
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -41,6 +42,9 @@ FORGEABLE_TOKEN = re.compile(r"<([@#])([^>\s]+)>")
 
 _AFTER_SPACE = r"(?<![^\s(\[])"
 HANDLE = re.compile(_AFTER_SPACE + r"@(\w(?:[\w.\-]*\w)?)")
+HANDLE_BODY = re.compile(r"\w(?:[\w.\-]*\w)?")
+MENTION_START = re.compile(_AFTER_SPACE + r"@(?=\S)")
+WORD_CHARACTER = re.compile(r"\w")
 REFERENCE_CODE = re.compile(_AFTER_SPACE + r"#(\w(?:[\w.\-/]*\w)?)")
 
 UNAVAILABLE_REFERENCE = "#unavailable"
@@ -59,6 +63,27 @@ def mention_handles(user: Any) -> set[str]:
     email = str(getattr(user, "email", "") or "")
     handles.add(email.partition("@")[0].lower())
     return {handle for handle in handles if handle}
+
+
+def mention_name(user: Any) -> str:
+    """``user``'s display name in lower case with single spaces, as typed in ``@Ann Lee``."""
+    return " ".join(display_name(user).split()).lower()
+
+
+def _is_handle(key: str) -> bool:
+    return HANDLE_BODY.fullmatch(key) is not None
+
+
+def _lowered_match_end(text: str, start: int, key: str) -> int | None:
+    """Where ``text[start:]`` ends if its start lower-cases to ``key``, or ``None``."""
+    for end in range(min(len(text), start + len(key)), start, -1):
+        if text[start:end].lower() == key:
+            return end
+    return None
+
+
+def _ends_word(text: str, end: int) -> bool:
+    return end == len(text) or WORD_CHARACTER.match(text, end) is None
 
 
 def _is_safe_url(url: str) -> bool:
@@ -80,8 +105,11 @@ class MessageMarkup:
 
         - ``@Display Name`` for each ``mentioned`` user becomes ``<@pk>``,
           longer names first so "@Ann Lee" wins over "@Ann".
-        - A free-typed ``@handle`` whose lower-case form is a key of
-          ``handles`` becomes that user's token.
+        - A free-typed ``@handle`` or ``@Full Name`` whose lower-case form is a
+          key of ``handles`` becomes that user's token. At each ``@`` the
+          longest key that matches and ends at a word boundary wins, so
+          "@Ann Lee" beats "@Ann" and "@Ann Leeds" is not "Ann Lee". A key
+          mapped to ``None`` (an ambiguous name) leaves the text as it is.
         - A ``#code`` that is a key of ``references`` becomes ``<#kind:id>``.
           Anything else stays plain text.
 
@@ -90,10 +118,14 @@ class MessageMarkup:
         """
         body = self._replace_picked(self._neutralise(text), mentioned)
         if handles:
-            body = HANDLE.sub(lambda match: self._handle_token(match, handles), body)
+            body = self._replace_typed(body, handles)
         if references:
             body = REFERENCE_CODE.sub(lambda match: self._reference_token(match, references), body)
         return body
+
+    def has_typed_mentions(self, text: str, mentioned: Iterable[Any] = ()) -> bool:
+        """Whether ``text`` has an ``@`` (after a boundary, before a non-space) not covered by a picked user."""
+        return MENTION_START.search(self._replace_picked(self._neutralise(text), mentioned)) is not None
 
     def handles(self, text: str, mentioned: Iterable[Any] = ()) -> set[str]:
         """Lower-case ``@handles`` in ``text`` that are not already covered by a picked ``mentioned`` user."""
@@ -119,21 +151,34 @@ class MessageMarkup:
         users_by_pk: Mapping[str, Any],
         references: Mapping[str, Reference | None] | None = None,
     ) -> str:
-        """Turn a stored body back into composer text.
+        """Turn a stored body back into composer text, using :meth:`editable_forms`."""
+        forms = self.editable_forms(body, users_by_pk, references)
+        return TOKEN.sub(lambda match: forms.get(match.group(0), match.group(0)), body)
 
-        Mention tokens become ``@Display Name``. Reference tokens in
-        ``references`` become ``#code``, or ``#unavailable`` when mapped to
-        ``None`` (no longer visible). Tokens of unknown kinds are left as they are.
+    def editable_forms(
+        self,
+        body: str,
+        users_by_pk: Mapping[str, Any],
+        references: Mapping[str, Reference | None] | None = None,
+    ) -> dict[str, str]:
+        """Each token in ``body`` mapped to the text the composer shows for it.
+
+        Mentions become ``@Display Name`` (``@unknown`` for a deleted user).
+        References in ``references`` become ``#code``; those mapped to
+        ``None`` (not visible to this editor) become ``#unavailable-1``,
+        ``#unavailable-2``… numbered in order of first appearance, so each
+        stays distinct when an edit keeps it. Tokens of unknown kinds have no
+        entry and stay as they are.
         """
-
-        def replace_mention(match: re.Match[str]) -> str:
-            user = users_by_pk.get(match.group(1))
-            return f"@{display_name(user)}" if user is not None else "@unknown"
-
-        text = MENTION_TOKEN.sub(replace_mention, body)
-        if references is None:
-            return text
-        return REFERENCE_TOKEN.sub(lambda match: self._editable_reference(match, references), text)
+        forms: dict[str, str | None] = {}
+        for match in TOKEN.finditer(body):
+            forms.setdefault(match.group(0), self._editable_form(match, users_by_pk, references))
+        numbering = count(1)
+        return {
+            token: f"{UNAVAILABLE_REFERENCE}-{next(numbering)}" if form == UNAVAILABLE_REFERENCE else form
+            for token, form in forms.items()
+            if form is not None
+        }
 
     def render(
         self,
@@ -168,9 +213,37 @@ class MessageMarkup:
         return body
 
     @staticmethod
-    def _handle_token(match: re.Match[str], handles: Mapping[str, Any]) -> str:
-        user = handles.get(match.group(1).lower())
-        return f"<@{user.pk}>" if user is not None else match.group(0)
+    def _replace_typed(body: str, typed: Mapping[str, Any]) -> str:
+        names = sorted((key for key in typed if not _is_handle(key)), key=len, reverse=True)
+        parts: list[str] = []
+        position = 0
+        for match in MENTION_START.finditer(body):
+            key, end = MessageMarkup._typed_key_at(body, match.end(), typed, names)
+            user = typed.get(key) if key is not None else None
+            if user is None or match.start() < position:
+                continue
+            parts.append(body[position : match.start()])
+            parts.append(f"<@{user.pk}>")
+            position = end
+        parts.append(body[position:])
+        return "".join(parts)
+
+    @staticmethod
+    def _typed_key_at(body: str, start: int, typed: Mapping[str, Any], names: list[str]) -> tuple[str | None, int]:
+        """The longest key of ``typed`` that starts at ``start`` and ends a word, and where it ends.
+
+        Lower-casing can change a string's length (``İ`` becomes two
+        characters), so each key is compared with the lower-cased slice of
+        ``body`` at the real offset, never with a lower-cased copy of the body.
+        """
+        for key in names:
+            end = _lowered_match_end(body, start, key)
+            if end is not None and _ends_word(body, end):
+                return key, end
+        handle = HANDLE_BODY.match(body, start)
+        if handle is not None and handle.group(0).lower() in typed:
+            return handle.group(0).lower(), handle.end()
+        return None, start
 
     @staticmethod
     def _reference_token(match: re.Match[str], references: Mapping[str, Reference]) -> str:
@@ -178,11 +251,18 @@ class MessageMarkup:
         return f"<#{reference.token}>" if reference is not None else match.group(0)
 
     @staticmethod
-    def _editable_reference(match: re.Match[str], references: Mapping[str, Reference | None]) -> str:
-        token = match.group(1)
-        if token not in references:
-            return match.group(0)
-        reference = references[token]
+    def _editable_form(
+        match: re.Match[str],
+        users_by_pk: Mapping[str, Any],
+        references: Mapping[str, Reference | None] | None,
+    ) -> str | None:
+        mention_pk, reference_token = match.groups()
+        if reference_token is None:
+            user = users_by_pk.get(mention_pk)
+            return f"@{display_name(user)}" if user is not None else "@unknown"
+        if references is None or reference_token not in references:
+            return None
+        reference = references[reference_token]
         return f"#{reference.code}" if reference is not None else UNAVAILABLE_REFERENCE
 
     def _render_text(self, text: str) -> str:

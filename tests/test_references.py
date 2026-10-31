@@ -157,7 +157,7 @@ class TestMarkup:
 
     def test_to_editable_references(self):
         text = markup.to_editable("<#ticket:7> <#ticket:8> <#risk:1>", {}, {"ticket:7": self.ticket, "ticket:8": None})
-        assert text == "#T1 #unavailable <#risk:1>"
+        assert text == "#T1 #unavailable-1 <#risk:1>"
 
     def test_without_resolvers_tokens_render_as_text(self):
         assert "&lt;#ticket:7&gt;" in markup.render("<#ticket:7>", {})
@@ -325,7 +325,7 @@ class TestRendering:
         hidden = render(message, bob)
         assert hidden.references == ()
         assert "confidential" not in hidden.html and "#unavailable" in hidden.html
-        assert hidden.text == "#unavailable"
+        assert hidden.text == "#unavailable-1"
         assert secret.code not in hidden.html
 
     def test_token_without_a_recorded_row_is_unavailable(self, site, alice, ticket):

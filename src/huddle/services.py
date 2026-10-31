@@ -14,8 +14,11 @@ then only substitutes what the service found.
 
 from __future__ import annotations
 
+from collections import Counter
+from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass
+from dataclasses import field
 from typing import Any
 
 from django.contrib.contenttypes.models import ContentType
@@ -34,6 +37,7 @@ from huddle.exceptions import NestedThreadError
 from huddle.exceptions import ThreadChannelMismatchError
 from huddle.markup import MessageMarkup
 from huddle.markup import mention_handles
+from huddle.markup import mention_name
 from huddle.models import Channel
 from huddle.models import ChannelMembership
 from huddle.models import Mention
@@ -44,6 +48,8 @@ from huddle.policy import ChatPolicy
 from huddle.realtime import Broadcaster
 from huddle.references import Reference
 from huddle.references import ReferenceRegistry
+from huddle.rendering import ChatRenderer
+from huddle.rendering import EditableLink
 
 MAX_RESOLVED_CODES = 50
 
@@ -57,8 +63,33 @@ class EncodedMessage:
     references: list[Reference]
 
 
+@dataclass(frozen=True)
+class KeptLinks:
+    """Links an edit may keep: what the editor's composer showed for each existing token.
+
+    ``mentions`` maps the lower-case typed form (``ann lee``) to the user and
+    ``references`` maps the code (``T1`` or ``unavailable-2``) to the
+    reference. Only tokens already on the message are here, so keeping one can
+    never forge a link.
+    """
+
+    mentions: dict[str, Any] = field(default_factory=dict)
+    references: dict[str, Reference] = field(default_factory=dict)
+
+
 def _unique_users(users: Iterable[Any]) -> list[Any]:
     return list({user.pk: user for user in users}.values())
+
+
+def _only(users: dict[Any, Any]) -> Any | None:
+    return next(iter(users.values())) if len(users) == 1 else None
+
+
+def _kept_reference(link: EditableLink) -> Reference:
+    if isinstance(link.target, Reference):
+        return link.target
+    kind, _, object_id = link.token.removeprefix("<#").removesuffix(">").partition(":")
+    return Reference(kind=kind, id=object_id, code=link.form.removeprefix("#"), label="", url="")
 
 
 class ChatService:
@@ -189,10 +220,17 @@ class ChatService:
         mentioned: Iterable[Any] = (),
         references: Iterable[str] = (),
     ) -> Message:
-        """Replace a message's text. Newly mentioned users and newly referenced objects are announced once."""
+        """Replace a message's text. Newly mentioned users and newly referenced objects are announced once.
+
+        An existing mention or reference whose composer form (``@Ann Lee``,
+        ``#T1``, ``#unavailable-2``) is still in ``text`` is kept as it was,
+        even if the editor can no longer see its target. Removing the text
+        removes the link. New ``@`` and ``#`` text follows the usual rules.
+        """
         if not self.policy.can_edit_message(user, message):
             raise ChatPermissionDeniedError("edit", user.pk, message.pk)
-        encoded = self.encode(user, message.channel, text, mentioned=mentioned, references=references)
+        kept = self.kept_links(user, message)
+        encoded = self.encode(user, message.channel, text, mentioned=mentioned, references=references, kept=kept)
         with transaction.atomic():
             message.body = encoded.body
             message.edited_at = timezone.now()
@@ -204,7 +242,7 @@ class ChatService:
             transaction.on_commit(lambda: self._announce_edit(message, new_mentions, new_references))
         return message
 
-    def encode(
+    def encode(  # noqa: PLR0913 - keyword-only options of a public method
         self,
         user: Any,
         channel: Channel,
@@ -212,22 +250,48 @@ class ChatService:
         *,
         mentioned: Iterable[Any] = (),
         references: Iterable[str] = (),
+        kept: KeptLinks | None = None,
     ) -> EncodedMessage:
         """Work out what ``text`` from ``user`` may mention and reference in ``channel``, and encode it.
 
         - Picked users count only if the policy lets them be mentioned here.
-        - A free-typed ``@handle`` counts if exactly one mentionable user owns it.
+        - A free-typed ``@handle`` or ``@Full Name`` counts if exactly one
+          mentionable user owns it; the longest match wins.
+        - ``kept`` links (see :meth:`kept_links`) win over everything else.
         - Picked references count only if the sender may see them here; other
           ``#codes`` go to the resolvers, first in settings order wins.
           Unknown or unauthorised codes stay plain text.
         """
+        kept = kept or KeptLinks()
         picked_users = self._allowed_mentions(channel, mentioned)
-        handle_users = self._handle_owners(channel, self.markup.handles(text, picked_users))
-        found = self._found_references(user, channel, text, references)
+        typed = {**self._typed_owners(channel, text, picked_users), **kept.mentions}
+        found = {
+            **self._found_references(user, channel, text, references, skip=kept.references.keys()),
+            **kept.references,
+        }
+        typed_users = [person for person in typed.values() if person is not None]
         return EncodedMessage(
-            body=self.markup.encode(text, picked_users, handles=handle_users, references=found),
-            mentioned=_unique_users([*picked_users, *handle_users.values()]),
+            body=self.markup.encode(text, picked_users, handles=typed, references=found),
+            mentioned=_unique_users([*picked_users, *typed_users]),
             references=list(found.values()),
+        )
+
+    def kept_links(self, user: Any, message: Message) -> KeptLinks:
+        """The links on ``message`` an edit by ``user`` keeps if their composer form is still in the text.
+
+        Forms are what ``user``'s composer shows (``@Ann Lee``, ``#T1``,
+        ``#unavailable-1``…). References need a recorded row and mentions an
+        existing user. A form shared by two different tokens is ambiguous and
+        is not kept; that text then goes through the usual rules.
+        """
+        renderer = ChatRenderer(user, self.policy, self.markup, self.references)
+        recorded = {f"<#{row.token}>" for row in message.references.all()}
+        links = [link for link in renderer.editable_links(message) if _is_keepable(link, recorded)]
+        uses = Counter(link.form.lower() for link in links)
+        links = [link for link in links if uses[link.form.lower()] == 1]
+        return KeptLinks(
+            mentions={link.form[1:].lower(): link.target for link in links if link.form.startswith("@")},
+            references={link.form[1:]: _kept_reference(link) for link in links if link.form.startswith("#")},
         )
 
     def delete_message(self, user: Any, message: Message) -> None:
@@ -262,17 +326,25 @@ class ChatService:
             return []
         return list(self.policy.mentionable_users(channel).filter(pk__in=pks))
 
-    def _handle_owners(self, channel: Channel, handles: set[str]) -> dict[str, Any]:
-        """Each handle mapped to the one mentionable user who owns it. Ambiguous handles map to nobody."""
-        if not handles or not get_setting("HUDDLE_FREE_TYPED_MENTIONS"):
-            return {}
-        owners: dict[str, dict[Any, Any]] = {handle: {} for handle in handles}
-        for candidate in self.policy.mentionable_users(channel).iterator():
-            for handle in mention_handles(candidate) & handles:
-                owners[handle][candidate.pk] = candidate
-        return {handle: next(iter(users.values())) for handle, users in owners.items() if len(users) == 1}
+    def _typed_owners(self, channel: Channel, text: str, picked: list[Any]) -> dict[str, Any | None]:
+        """Typed handles and full names in ``text`` mapped to the one mentionable user they fit.
 
-    def _found_references(self, user: Any, channel: Channel, text: str, picks: Iterable[str]) -> dict[str, Reference]:
+        A key that fits several users maps to ``None``, so the markup leaves
+        that text alone rather than falling back to a shorter match.
+        """
+        if not get_setting("HUDDLE_FREE_TYPED_MENTIONS") or not self.markup.has_typed_mentions(text, picked):
+            return {}
+        handles = self.markup.handles(text, picked)
+        lowered = text.lower()
+        owners: defaultdict[str, dict[Any, Any]] = defaultdict(dict)
+        for candidate in self.policy.mentionable_users(channel).iterator():
+            for key in _typed_keys(candidate, handles, lowered):
+                owners[key][candidate.pk] = candidate
+        return {key: _only(users) for key, users in owners.items()}
+
+    def _found_references(
+        self, user: Any, channel: Channel, text: str, picks: Iterable[str], *, skip: Iterable[str] = ()
+    ) -> dict[str, Reference]:
         """Typed ``#codes`` mapped to the references they encode to: exact picks first, then free-typed lookups.
 
         At most ``MAX_RESOLVED_CODES`` unpicked codes are looked up per message,
@@ -284,7 +356,8 @@ class ChatService:
         if not codes:
             return {}
         picked = {reference.code: reference for reference in self.references.visible(channel, user, picks).values()}
-        unpicked = [code for code in codes if code not in picked][:MAX_RESOLVED_CODES]
+        skipped = set(skip)
+        unpicked = [code for code in codes if code not in picked and code not in skipped][:MAX_RESOLVED_CODES]
         return {**self.references.resolve_codes(channel, user, unpicked), **picked}
 
     def _record_references(
@@ -389,3 +462,18 @@ class ChatService:
             channel_id=message.channel_id,
             thread_id=message.parent_id,
         )
+
+
+def _typed_keys(candidate: Any, handles: set[str], lowered_text: str) -> set[str]:
+    """The keys in the text that could name ``candidate``: its handles, and its full name if typed."""
+    keys = mention_handles(candidate) & handles
+    name = mention_name(candidate)
+    if name and f"@{name}" in lowered_text:
+        keys.add(name)
+    return keys
+
+
+def _is_keepable(link: EditableLink, recorded_references: set[str]) -> bool:
+    if link.token.startswith("<@"):
+        return link.target is not None
+    return link.token in recorded_references

@@ -1,6 +1,6 @@
 "use strict";
 
-const HUDDLE_MENTION_PATTERN = /(^|\s)@([^\s@]{0,40})$/;
+const HUDDLE_MENTION_PATTERN = /(^|\s)@((?:[^\s@]{1,40}(?: [^\s@]{0,40}){0,2})?)$/;
 const HUDDLE_REFERENCE_PATTERN = /(^|\s)#([^\s#]{0,40})$/;
 
 function huddleComposerKeydown(event, textarea) {

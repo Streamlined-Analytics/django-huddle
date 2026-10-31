@@ -8,7 +8,7 @@ Slack-style team chat for Django: **channels, direct messages, threads,
 - **Threads.** Reply to any message in a side thread, as in Slack. Threads
   are one level deep and track reply counts, followers and read state.
 - **@mentions.** Autocomplete offers only people who can read the channel, and
-  a typed handle such as `@benatkinson` works too. Mentions are stored by user
+  typing the exact name (`@Ben Atkinson`) or a handle (`@benatkinson`) works too. Mentions are stored by user
   id, so renaming someone never breaks old messages.
 - **`#` references.** `#B3.2` or `#0001` can link to your own objects (requirements,
   tickets, risks), through resolvers you write. Each viewer sees only what they
@@ -129,12 +129,31 @@ Overridable methods: `scope_q`, `filter_visible`, `can_view`, `can_post`,
 
 ## Mentions
 
-The composer autocompletes `@` from `ChatPolicy.mentionable_users(channel)` and
-posts the picked user ids. A handle typed without picking also counts: the
-display name with the spaces removed (`@benatkinson` for "Ben Atkinson") or the
-email local part (`@b.atkinson`), case-insensitive. If a handle fits more than
-one mentionable user, nobody is mentioned and it stays plain text. Set
-`HUDDLE_FREE_TYPED_MENTIONS = False` to require picking.
+The composer autocompletes `@` from `ChatPolicy.mentionable_users(channel)` as
+you type, including across a space (`@Ben A`), and posts the picked user ids. A
+name typed without picking also counts, case-insensitively:
+
+- the full display name (`@Ben Atkinson`). The longest name wins, so `@Ann Lee`
+  beats `@Ann`, and it must end at a word boundary, so `@Ann Leeds` is not Ann Lee;
+- the display name with the spaces removed (`@benatkinson`), or the email local
+  part (`@b.atkinson`).
+
+If the matched name or handle fits more than one mentionable user, nobody is
+mentioned and the text stays as typed. Set `HUDDLE_FREE_TYPED_MENTIONS = False`
+to require picking.
+
+### Editing keeps links whose text remains
+
+When a message is edited, every existing mention or reference whose text is
+still there is kept as it was, even if the editor can no longer see the person
+or the item. Delete the text and the link goes. The editor's text shows a
+reference they can no longer see as `#unavailable-1`, `#unavailable-2`… (one
+number per hidden item), so each can be kept or removed on its own. New `@` and
+`#` text in an edit follows the normal rules, and only links already on that
+message can be kept, so nothing can be forged. Kept links send no new
+`user_mentioned` or `reference_added` signal. The HTML edit form, the REST
+`PATCH` and `ChatService.edit_message()` behave the same way;
+`ChatService.kept_links(user, message)` shows what an edit would keep.
 
 ## `#` references to your own objects
 
@@ -185,7 +204,8 @@ HUDDLE_REFERENCE_RESOLVERS = ["myapp.chat.RequirementResolver", "myapp.chat.Risk
 - **Stored by id.** The body keeps `<#requirement:42>`, so renumbering an item
   doesn't break old messages.
 - **Checked again when shown.** Each viewer's page re-asks `get()`. Someone who
-  can no longer see the item gets a neutral `#unavailable`, never its label.
+  can no longer see the item gets a neutral `#unavailable`, never its label
+  (`#unavailable-N` in the edit box, so editing keeps it).
 - **Unknown or forbidden codes stay plain text.** A hand-typed `<#…>` token is
   neutralised, so references can't be forged.
 - **Conflicts.** A code picked from autocomplete is exact. A free-typed code goes
@@ -320,7 +340,7 @@ else, so there's no HTML sanitiser to keep patched.
 | `HUDDLE_MAX_MESSAGE_LENGTH` | `10000` |
 | `HUDDLE_WEBSOCKET_URL` | `"/ws/huddle/"` |
 | `HUDDLE_REFERENCE_RESOLVERS` | `[]` (dotted paths to `ReferenceResolver` subclasses; earlier entries win conflicts) |
-| `HUDDLE_FREE_TYPED_MENTIONS` | `True` (typed `@handles` mention without picking) |
+| `HUDDLE_FREE_TYPED_MENTIONS` | `True` (typed `@Full Name` and `@handles` mention without picking) |
 
 ## Development
 

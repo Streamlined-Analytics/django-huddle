@@ -199,6 +199,10 @@ a.huddle-reference:focus {
   box-shadow: 0 4px 12px rgb(0 0 0 / 10%);
 }
 
+.huddle-mention-results:not(:has(*)) {
+  display: none;
+}
+
 .huddle-mention-option {
   text-align: left;
   border: 0;
