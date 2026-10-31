@@ -176,7 +176,10 @@ HUDDLE_REFERENCE_RESOLVERS = ["myapp.chat.RequirementResolver", "myapp.chat.Risk
 
 - **Every method only returns what `user` may see in `channel`.** Huddle has
   already checked the user may read the channel; the object is yours to check.
-  Ids arrive as strings.
+  Ids arrive as strings, and picked ids come from the client: if `get()` raises
+  `ValueError`, `TypeError` or `ValidationError` on them, huddle answers 400.
+- **`content_type` is only recorded when the stored id is the primary key.** If
+  you override `object_id()`, look references up by `kind` and `object_id`.
 - **DMs have no scope.** `channel.scope` is `None` there (and in unscoped
   channels). Return nothing if your objects only make sense inside a scope.
 - **Stored by id.** The body keeps `<#requirement:42>`, so renumbering an item
