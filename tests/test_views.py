@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from django.middleware import csrf
 from django.test import override_settings
 from django.urls import reverse
 
+import huddle
 from huddle.models import Channel
 from huddle.models import ChannelMembership
 from huddle.models import Message
@@ -211,3 +214,10 @@ class TestChannelsAndDirect:
         response = alice_client.post(reverse("huddle:new_direct"), {"users": [bob.pk]})
         dm = Channel.objects.direct().get()
         assert response.url == reverse("huddle:channel", args=[dm.pk])
+
+
+def test_empty_channel_placeholder_is_cleared_when_messages_arrive():
+    """The placeholder must hide once a message follows it (live or posted)."""
+    static = Path(huddle.__file__).parent / "static" / "huddle"
+    assert ".huddle-empty:has(~ .huddle-message)" in (static / "huddle.css").read_text()
+    assert "huddleClearEmptyState(target)" in (static / "huddle.js").read_text()

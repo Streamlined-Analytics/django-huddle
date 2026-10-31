@@ -1,7 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.2.2 (2026-10-31)
 
+- The "No messages yet" placeholder now disappears as soon as the first
+  message arrives, whether it was sent live by someone else or posted by you.
+  A CSS rule hides it once a message follows it, and the after-swap handler
+  also removes it for browsers without `:has()`.
 - Fixed a flaky view test (`TestPages::test_pagination`, about 1 run in 30):
   it searched the page for two-character message bodies such as `m2`, which
   the random CSRF token sometimes contained. It now checks each message's
