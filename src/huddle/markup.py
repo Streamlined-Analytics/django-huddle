@@ -74,6 +74,14 @@ def _is_handle(key: str) -> bool:
     return HANDLE_BODY.fullmatch(key) is not None
 
 
+def _lowered_match_end(text: str, start: int, key: str) -> int | None:
+    """Where ``text[start:]`` ends if its start lower-cases to ``key``, or ``None``."""
+    for end in range(min(len(text), start + len(key)), start, -1):
+        if text[start:end].lower() == key:
+            return end
+    return None
+
+
 def _ends_word(text: str, end: int) -> bool:
     return end == len(text) or WORD_CHARACTER.match(text, end) is None
 
@@ -114,6 +122,10 @@ class MessageMarkup:
         if references:
             body = REFERENCE_CODE.sub(lambda match: self._reference_token(match, references), body)
         return body
+
+    def has_typed_mentions(self, text: str, mentioned: Iterable[Any] = ()) -> bool:
+        """Whether ``text`` has an ``@`` (after a boundary, before a non-space) not covered by a picked user."""
+        return MENTION_START.search(self._replace_picked(self._neutralise(text), mentioned)) is not None
 
     def handles(self, text: str, mentioned: Iterable[Any] = ()) -> set[str]:
         """Lower-case ``@handles`` in ``text`` that are not already covered by a picked ``mentioned`` user."""
@@ -202,10 +214,7 @@ class MessageMarkup:
 
     @staticmethod
     def _replace_typed(body: str, typed: Mapping[str, Any]) -> str:
-        names = [
-            (key, re.compile(re.escape(key), re.IGNORECASE))
-            for key in sorted((key for key in typed if not _is_handle(key)), key=len, reverse=True)
-        ]
+        names = sorted((key for key in typed if not _is_handle(key)), key=len, reverse=True)
         parts: list[str] = []
         position = 0
         for match in MENTION_START.finditer(body):
@@ -220,19 +229,17 @@ class MessageMarkup:
         return "".join(parts)
 
     @staticmethod
-    def _typed_key_at(
-        body: str, start: int, typed: Mapping[str, Any], names: list[tuple[str, re.Pattern[str]]]
-    ) -> tuple[str | None, int]:
+    def _typed_key_at(body: str, start: int, typed: Mapping[str, Any], names: list[str]) -> tuple[str | None, int]:
         """The longest key of ``typed`` that starts at ``start`` and ends a word, and where it ends.
 
-        Names are matched with case-insensitive patterns against ``body``
-        itself, because lower-casing can change a string's length (``İ``) and
-        would shift offsets.
+        Lower-casing can change a string's length (``İ`` becomes two
+        characters), so each key is compared with the lower-cased slice of
+        ``body`` at the real offset, never with a lower-cased copy of the body.
         """
-        for key, pattern in names:
-            found = pattern.match(body, start)
-            if found is not None and _ends_word(body, found.end()):
-                return key, found.end()
+        for key in names:
+            end = _lowered_match_end(body, start, key)
+            if end is not None and _ends_word(body, end):
+                return key, end
         handle = HANDLE_BODY.match(body, start)
         if handle is not None and handle.group(0).lower() in typed:
             return handle.group(0).lower(), handle.end()

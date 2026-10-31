@@ -239,3 +239,13 @@ def test_edit_keeps_mention_of_a_name_starting_with_punctuation(service, general
     assert message.body == f"hi <@{quoted.pk}>"
     service.edit_message(alice, message, "hi again @'Ann Lee'")
     assert message.body == f"hi again <@{quoted.pk}>"
+
+
+def test_typed_name_with_a_length_changing_capital(service, general, alice):
+    ilker = make_person("ilker", "İlker", "Kaya")
+    assert service.post_message(alice, general, "hi @İlker Kaya!").body == f"hi <@{ilker.pk}>!"
+
+
+def test_typed_name_starting_with_punctuation(service, general, alice):
+    quoted = make_person("quoted", "'Ann", "Lee'")
+    assert service.post_message(alice, general, "hi @'Ann Lee'").body == f"hi <@{quoted.pk}>"

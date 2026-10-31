@@ -332,9 +332,9 @@ class ChatService:
         A key that fits several users maps to ``None``, so the markup leaves
         that text alone rather than falling back to a shorter match.
         """
-        handles = self.markup.handles(text, picked)
-        if not handles or not get_setting("HUDDLE_FREE_TYPED_MENTIONS"):
+        if not get_setting("HUDDLE_FREE_TYPED_MENTIONS") or not self.markup.has_typed_mentions(text, picked):
             return {}
+        handles = self.markup.handles(text, picked)
         lowered = text.lower()
         owners: defaultdict[str, dict[Any, Any]] = defaultdict(dict)
         for candidate in self.policy.mentionable_users(channel).iterator():
