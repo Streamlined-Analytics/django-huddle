@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.0 (2026-11-02)
+
+- Deleted messages are recorded (ADR-0012). `ChatService.delete_message()`
+  now writes a `MessageDeletion` with the original text, mentions,
+  references and who deleted it, and returns it. Thread replies are covered.
+- New `ChatService.restore_message(user, message)` undoes the latest
+  deletion: the text, mentions and references come back, without notifying
+  anyone again.
+- New policy hooks `can_restore_message` and `can_view_deletions` (default:
+  whoever manages the channel).
+- New signals `message_deleted` and `message_restored`.
+- New `MessageDeletion.objects.in_channels(channels)` and `.unrestored()`
+  for audit pages.
+- Migration `0003_message_deletion`.
+
 ## 0.2.2 (2026-10-31)
 
 - The "No messages yet" placeholder now disappears as soon as the first

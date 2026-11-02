@@ -17,3 +17,4 @@ superseded decision gets a new record.
 | [ADR-0009](0009-free-typed-mention-handles.md) | Free-typed `@handles` mention when exactly one mentionable user fits |
 | [ADR-0010](0010-typed-full-name-mentions.md) | Typed full names mention; longest match first; ambiguity mentions nobody |
 | [ADR-0011](0011-edits-keep-links-whose-text-remains.md) | Edits keep links whose text remains, using numbered `#unavailable-N` placeholders |
+| [ADR-0012](0012-record-and-restore-deleted-messages.md) | Deletions are recorded in `MessageDeletion` with who deleted them; `restore_message` undoes one |

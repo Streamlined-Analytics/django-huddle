@@ -107,3 +107,10 @@ class InvalidReferenceIdError(HuddleError):
             kind=kind,
             object_ids=object_ids,
         )
+
+
+class NothingToRestoreError(HuddleError):
+    """A restore was asked for a message that isn't deleted, or has no deletion record to restore from."""
+
+    def __init__(self, message_id: Any) -> None:
+        super().__init__(f"Message {message_id} has no deletion to restore.", message_id=message_id)

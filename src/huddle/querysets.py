@@ -21,6 +21,7 @@ from django.db.models.functions import Coalesce
 if TYPE_CHECKING:
     from huddle.models import Channel  # noqa: F401
     from huddle.models import Message
+    from huddle.models import MessageDeletion  # noqa: F401
     from huddle.models import MessageReference  # noqa: F401
 
 
@@ -159,3 +160,24 @@ class MessageReferenceQuerySet(models.QuerySet["MessageReference"]):
             message__channel__in=Channel.objects.visible_to(user),
             message__deleted_at__isnull=True,
         )
+
+
+class MessageDeletionQuerySet(models.QuerySet["MessageDeletion"]):
+    """Deleted-message records."""
+
+    def in_channels(self, channels: models.QuerySet[Channel]) -> MessageDeletionQuerySet:
+        """Deletions of messages (and thread replies) in ``channels``, newest first, with the people involved.
+
+        Used by hosts' audit pages.
+        """
+        return self.filter(message__channel__in=channels).select_related(
+            "message__channel",
+            "message__author",
+            "message__parent",
+            "deleted_by",
+            "restored_by",
+        )
+
+    def unrestored(self) -> MessageDeletionQuerySet:
+        """Deletions not yet undone. Used by ``ChatService.restore_message``."""
+        return self.filter(restored_at__isnull=True)

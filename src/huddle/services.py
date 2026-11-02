@@ -14,6 +14,7 @@ then only substitutes what the service found.
 
 from __future__ import annotations
 
+import logging
 from collections import Counter
 from collections import defaultdict
 from collections.abc import Iterable
@@ -21,6 +22,7 @@ from dataclasses import dataclass
 from dataclasses import field
 from typing import Any
 
+from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
 from django.db import models
 from django.db import transaction
@@ -34,6 +36,7 @@ from huddle.conf import get_setting
 from huddle.exceptions import ChatPermissionDeniedError
 from huddle.exceptions import InvalidDirectMessageError
 from huddle.exceptions import NestedThreadError
+from huddle.exceptions import NothingToRestoreError
 from huddle.exceptions import ThreadChannelMismatchError
 from huddle.markup import MessageMarkup
 from huddle.markup import mention_handles
@@ -42,6 +45,7 @@ from huddle.models import Channel
 from huddle.models import ChannelMembership
 from huddle.models import Mention
 from huddle.models import Message
+from huddle.models import MessageDeletion
 from huddle.models import MessageReference
 from huddle.models import ThreadParticipant
 from huddle.policy import ChatPolicy
@@ -50,6 +54,8 @@ from huddle.references import Reference
 from huddle.references import ReferenceRegistry
 from huddle.rendering import ChatRenderer
 from huddle.rendering import EditableLink
+
+logger = logging.getLogger(__name__)
 
 MAX_RESOLVED_CODES = 50
 
@@ -294,17 +300,80 @@ class ChatService:
             references={link.form[1:]: _kept_reference(link) for link in links if link.form.startswith("#")},
         )
 
-    def delete_message(self, user: Any, message: Message) -> None:
-        """Soft-delete a message: its text and mentions are removed, a placeholder remains."""
+    def delete_message(self, user: Any, message: Message) -> MessageDeletion:
+        """Soft-delete a message: its text and mentions are removed, a placeholder remains.
+
+        A :class:`~huddle.models.MessageDeletion` keeps the text, mentions and
+        references, and who deleted it, for audit and :meth:`restore_message`.
+        """
         if not self.policy.can_delete_message(user, message):
             raise ChatPermissionDeniedError("delete", user.pk, message.pk)
         with transaction.atomic():
+            deletion = MessageDeletion.objects.create(
+                message=message,
+                deleted_by=user,
+                body=message.body,
+                mentioned_user_ids=[str(pk) for pk in message.mentions.values_list("user_id", flat=True)],
+                references=list(message.references.values("kind", "object_id", "content_type_id")),
+            )
             message.body = ""
-            message.deleted_at = timezone.now()
+            message.deleted_at = deletion.deleted_at
             message.save(update_fields=["body", "deleted_at"])
             message.mentions.all().delete()
             message.references.all().delete()
             transaction.on_commit(lambda: self._broadcast(message, "deleted"))
+            transaction.on_commit(
+                lambda: signals.message_deleted.send(sender=Message, message=message, deletion=deletion, user=user)
+            )
+        logger.info(
+            "huddle.message.deleted",
+            extra={"message_id": message.pk, "channel_id": message.channel_id, "user_id": user.pk},
+        )
+        return deletion
+
+    def restore_message(self, user: Any, message: Message) -> MessageDeletion:
+        """Undo the latest deletion of ``message``: its text, mentions and references come back.
+
+        Nobody is notified again: the mentions and references were announced
+        when the message was first posted. Viewers get the usual ``updated``
+        broadcast.
+        """
+        if not self.policy.can_restore_message(user, message):
+            raise ChatPermissionDeniedError("restore", user.pk, message.pk)
+        deletion = message.deletions.unrestored().order_by("-deleted_at", "-pk").first()
+        if deletion is None:
+            raise NothingToRestoreError(message.pk)
+        with transaction.atomic():
+            message.body = deletion.body
+            message.deleted_at = None
+            message.save(update_fields=["body", "deleted_at"])
+            self._restore_links(message, deletion)
+            deletion.restored_by = user
+            deletion.restored_at = timezone.now()
+            deletion.save(update_fields=["restored_by", "restored_at"])
+            transaction.on_commit(lambda: self._broadcast(message, "updated"))
+            transaction.on_commit(
+                lambda: signals.message_restored.send(sender=Message, message=message, deletion=deletion, user=user)
+            )
+        logger.info(
+            "huddle.message.restored",
+            extra={"message_id": message.pk, "deletion_id": deletion.pk, "user_id": user.pk},
+        )
+        return deletion
+
+    @staticmethod
+    def _restore_links(message: Message, deletion: MessageDeletion) -> None:
+        """Recreate the mention and reference rows a deletion removed. Users deleted since are skipped."""
+        user_model = get_user_model()
+        users = user_model._default_manager.filter(pk__in=deletion.mentioned_user_ids)
+        Mention.objects.bulk_create(
+            [Mention(message=message, user=user) for user in users],
+            ignore_conflicts=True,
+        )
+        MessageReference.objects.bulk_create(
+            [MessageReference(message=message, **row) for row in deletion.references],
+            ignore_conflicts=True,
+        )
 
     def mark_read(self, user: Any, channel: Channel) -> None:
         """Record that ``user`` has read ``channel`` up to now."""

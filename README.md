@@ -125,7 +125,8 @@ immediately.
 
 Overridable methods: `scope_q`, `filter_visible`, `can_view`, `can_post`,
 `can_create_channel`, `can_manage_channel`, `can_edit_message`,
-`can_delete_message`, `mentionable_users`, `direct_message_candidates`.
+`can_delete_message`, `can_restore_message`, `can_view_deletions`,
+`mentionable_users`, `direct_message_candidates`.
 
 ## Mentions
 
@@ -237,6 +238,23 @@ chat.post_message(user, channel, "See #B3.2", references=["requirement:42"])  # 
 dm = chat.open_direct(user, [ann, bob])
 ```
 
+### Deleted messages: audit and restore
+
+Deleting blanks a message for everyone, but records a `MessageDeletion` with
+what it said, its mentions and references, and who deleted it (thread
+replies included). Use it for an audit page, and undo a deletion with
+`restore_message`:
+
+```python
+from huddle.models import MessageDeletion
+
+deletions = MessageDeletion.objects.in_channels(channels)  # newest first
+chat.restore_message(moderator, message)  # text, mentions and references come back
+```
+
+`can_restore_message` and `can_view_deletions` on your policy decide who may
+restore and audit (default: whoever manages the channel).
+
 The service enforces the policy and raises
 `huddle.exceptions.ChatPermissionDeniedError` (and friends). Each exception
 has a `.context` dict for structured logging.
@@ -251,6 +269,8 @@ Signals are sent **after the transaction commits**:
 | `huddle.signals.user_mentioned` | `message`, `user` (once per newly mentioned user, including on edit) |
 | `huddle.signals.thread_replied` | `message`, `thread`, `recipients` (the thread's followers, minus the author) |
 | `huddle.signals.reference_added` | `message`, `reference` (the `MessageReference` row), `target` (your object); once per newly referenced object, including on edit |
+| `huddle.signals.message_deleted` | `message`, `deletion` (the `MessageDeletion` row), `user` (who deleted it) |
+| `huddle.signals.message_restored` | `message`, `deletion`, `user` (who restored it) |
 
 ```python
 @receiver(user_mentioned)
