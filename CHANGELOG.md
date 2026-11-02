@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.1 (2026-11-02)
+
+- Fixed "Reply in thread", Edit and Delete doing nothing on a message you
+  had just sent, until the page was reloaded (ADR-0013). The sender receives
+  their new message twice (the reply to their own post and the channel
+  broadcast). `huddleReplaceExisting` swapped the second copy in with a plain
+  DOM `replaceWith`, which htmx never processed, so the copy's buttons were
+  inert. It now calls `htmx.process()` on the node it swaps in.
+
 ## 0.3.0 (2026-11-02)
 
 - Deleted messages are recorded (ADR-0012). `ChatService.delete_message()`

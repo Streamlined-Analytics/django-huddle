@@ -18,3 +18,4 @@ superseded decision gets a new record.
 | [ADR-0010](0010-typed-full-name-mentions.md) | Typed full names mention; longest match first; ambiguity mentions nobody |
 | [ADR-0011](0011-edits-keep-links-whose-text-remains.md) | Edits keep links whose text remains, using numbered `#unavailable-N` placeholders |
 | [ADR-0012](0012-record-and-restore-deleted-messages.md) | Deletions are recorded in `MessageDeletion` with who deleted them; `restore_message` undoes one |
+| [ADR-0013](0013-process-messages-swapped-in-by-deduplication.md) | Messages swapped in by de-duplication are passed to `htmx.process` |

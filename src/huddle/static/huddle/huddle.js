@@ -109,6 +109,7 @@ function huddleReplaceExisting(event) {
   const existing = document.getElementById(incoming.id);
   if (existing && event.detail.target !== existing) {
     existing.replaceWith(incoming);
+    htmx.process(incoming);
     event.detail.shouldSwap = false;
   }
 }
