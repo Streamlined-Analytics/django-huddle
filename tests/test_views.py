@@ -221,3 +221,14 @@ def test_empty_channel_placeholder_is_cleared_when_messages_arrive():
     static = Path(huddle.__file__).parent / "static" / "huddle"
     assert ".huddle-empty:has(~ .huddle-message)" in (static / "huddle.css").read_text()
     assert "huddleClearEmptyState(target)" in (static / "huddle.js").read_text()
+
+
+def test_deduplicated_live_message_is_processed_by_htmx():
+    """A message swapped in over an existing copy must get working buttons.
+
+    The sender receives a new message twice; the second copy replaces the
+    first with ``replaceWith``, which htmx does not process on its own.
+    """
+    script = (Path(huddle.__file__).parent / "static" / "huddle" / "huddle.js").read_text()
+    replace_at = script.index("existing.replaceWith(incoming);")
+    assert script.index("htmx.process(incoming);") > replace_at
