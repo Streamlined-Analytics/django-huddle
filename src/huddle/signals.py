@@ -10,6 +10,11 @@
     Once per host object newly ``#``-referenced in a message (posted or edited).
     ``reference`` is the :class:`~huddle.models.MessageReference` row and
     ``target`` the object the resolver returned.
+``message_deleted(sender=Message, message, deletion, user)``
+    A message was deleted by ``user``. ``deletion`` is the
+    :class:`~huddle.models.MessageDeletion` row holding what it said.
+``message_restored(sender=Message, message, deletion, user)``
+    ``user`` undid ``deletion``.
 """
 
 from __future__ import annotations
@@ -20,3 +25,5 @@ message_posted = Signal()
 user_mentioned = Signal()
 thread_replied = Signal()
 reference_added = Signal()
+message_deleted = Signal()
+message_restored = Signal()

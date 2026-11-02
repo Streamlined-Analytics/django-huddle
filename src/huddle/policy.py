@@ -103,6 +103,14 @@ class ChatPolicy:
             return False
         return message.author_id == user.pk or self.can_manage_channel(user, message.channel)
 
+    def can_restore_message(self, user: Any, message: Message) -> bool:
+        """Whether ``user`` may undo the deletion of ``message``: whoever manages the channel."""
+        return message.is_deleted and self.can_manage_channel(user, message.channel)
+
+    def can_view_deletions(self, user: Any, channel: Channel) -> bool:
+        """Whether ``user`` may read what was deleted from ``channel``, and who deleted it."""
+        return self.can_manage_channel(user, channel)
+
     def mentionable_users(self, channel: Channel) -> QuerySet[AbstractBaseUser]:
         """Users who may be @mentioned in ``channel``: the people who can read it.
 

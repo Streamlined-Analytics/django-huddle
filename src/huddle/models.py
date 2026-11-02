@@ -20,6 +20,7 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from huddle.querysets import ChannelQuerySet
+from huddle.querysets import MessageDeletionQuerySet
 from huddle.querysets import MessageQuerySet
 from huddle.querysets import MessageReferenceQuerySet
 
@@ -236,3 +237,51 @@ class ThreadParticipant(models.Model):
 
     def __str__(self) -> str:
         return f"{self.user} following {self.thread_id}"
+
+
+class MessageDeletion(models.Model):
+    """One deletion of a message: what it said, who deleted it, and whether it was restored.
+
+    Deleting blanks the message and drops its mentions and references; this
+    row keeps them, so a deletion can be audited and undone
+    (:meth:`~huddle.services.ChatService.restore_message`). A message deleted,
+    restored and deleted again has two rows.
+    """
+
+    message = models.ForeignKey(Message, on_delete=models.CASCADE, related_name="deletions")
+    deleted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    deleted_at = models.DateTimeField(default=timezone.now, db_index=True)
+    body = models.TextField(help_text=_("The message body as it was, tokens included."))
+    mentioned_user_ids = models.JSONField(default=list, blank=True)
+    references = models.JSONField(
+        default=list,
+        blank=True,
+        help_text=_("The reference rows as they were: kind, object_id and content_type_id."),
+    )
+    restored_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    restored_at = models.DateTimeField(null=True, blank=True)
+
+    objects: ClassVar[MessageDeletionQuerySet] = MessageDeletionQuerySet.as_manager()  # type: ignore[assignment]
+
+    class Meta:
+        ordering = ["-deleted_at", "-pk"]
+
+    def __str__(self) -> str:
+        return f"Deletion of message {self.message_id} at {self.deleted_at:%Y-%m-%d %H:%M}"
+
+    @property
+    def is_restored(self) -> bool:
+        """Whether this deletion has been undone."""
+        return self.restored_at is not None
