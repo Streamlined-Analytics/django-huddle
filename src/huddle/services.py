@@ -313,7 +313,7 @@ class ChatService:
                 message=message,
                 deleted_by=user,
                 body=message.body,
-                mentioned_user_ids=list(message.mentions.values_list("user_id", flat=True)),
+                mentioned_user_ids=[str(pk) for pk in message.mentions.values_list("user_id", flat=True)],
                 references=list(message.references.values("kind", "object_id", "content_type_id")),
             )
             message.body = ""
@@ -335,7 +335,8 @@ class ChatService:
         """Undo the latest deletion of ``message``: its text, mentions and references come back.
 
         Nobody is notified again: the mentions and references were announced
-        when the message was first posted.
+        when the message was first posted. Viewers get the usual ``updated``
+        broadcast.
         """
         if not self.policy.can_restore_message(user, message):
             raise ChatPermissionDeniedError("restore", user.pk, message.pk)
@@ -350,7 +351,7 @@ class ChatService:
             deletion.restored_by = user
             deletion.restored_at = timezone.now()
             deletion.save(update_fields=["restored_by", "restored_at"])
-            transaction.on_commit(lambda: self._broadcast(message, "edited"))
+            transaction.on_commit(lambda: self._broadcast(message, "updated"))
             transaction.on_commit(
                 lambda: signals.message_restored.send(sender=Message, message=message, deletion=deletion, user=user)
             )

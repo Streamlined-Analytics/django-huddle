@@ -52,7 +52,7 @@ class TestDeletionRecord:
         with django_capture_on_commit_callbacks(execute=True):
             deletion = service.delete_message(alice, message)
         assert (deletion.message, deletion.deleted_by, deletion.body) == (message, alice, body)
-        assert deletion.mentioned_user_ids == [alice.pk]
+        assert deletion.mentioned_user_ids == [str(alice.pk)]
         assert not deletion.is_restored
         assert deletion_signals["deleted"][0]["deletion"] == deletion
         assert deletion_signals["deleted"][0]["user"] == alice

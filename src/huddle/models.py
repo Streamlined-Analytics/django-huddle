@@ -258,7 +258,11 @@ class MessageDeletion(models.Model):
     )
     deleted_at = models.DateTimeField(default=timezone.now, db_index=True)
     body = models.TextField(help_text=_("The message body as it was, tokens included."))
-    mentioned_user_ids = models.JSONField(default=list, blank=True)
+    mentioned_user_ids = models.JSONField(
+        default=list,
+        blank=True,
+        help_text=_("Primary keys of the mentioned users, as strings (so UUID keys serialise)."),
+    )
     references = models.JSONField(
         default=list,
         blank=True,

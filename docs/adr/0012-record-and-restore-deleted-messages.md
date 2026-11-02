@@ -26,7 +26,8 @@ replies, and to undo a mistaken deletion.
   unrestored deletion: body back, `deleted_at` cleared, mention and reference
   rows recreated (users deleted since are skipped). It doesn't re-announce
   mentions or references; they were announced when the message was posted.
-  Viewers are told through the usual `edited` broadcast.
+  Viewers are told through the usual `updated` broadcast. Mentioned user
+  ids are stored as strings so UUID primary keys serialise.
 - **Policy hooks.** `can_restore_message` (default: whoever manages the
   channel, and only for a deleted message) and `can_view_deletions` (default:
   whoever manages the channel) let hosts decide who audits and restores.
