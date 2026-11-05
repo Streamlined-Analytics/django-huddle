@@ -67,7 +67,7 @@ class EditableLink:
 
     ``target`` is the mentioned user, the visible :class:`Reference`, or
     ``None`` when the editor can't see it (a deleted user, or a reference
-    shown as ``#unavailable-N``).
+    shown as ``#unavailable-N`` with its kind's trigger).
     """
 
     token: str
@@ -97,8 +97,8 @@ class ChatRenderer:
     ) -> None:
         self.viewer = viewer
         self.policy = policy or get_policy()
-        self.markup = markup or MessageMarkup()
         self.references = references if references is not None else get_reference_registry()
+        self.markup = markup or MessageMarkup(self.references)
 
     def message_views(self, messages: Iterable[Message]) -> list[MessageView]:
         """View models for ``messages``, resolving every mention and reference in bulk."""

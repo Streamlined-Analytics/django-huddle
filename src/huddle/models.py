@@ -181,7 +181,7 @@ class Mention(models.Model):
 
 
 class MessageReference(models.Model):
-    """A host object referenced from a message with ``#code``, stored as a ``<#kind:id>`` token.
+    """A host object referenced from a message with a typed code (``#B3.2``), stored as a ``<#kind:id>`` token.
 
     Rows mirror the tokens the service wrote into the body, so hosts can list
     where an object was discussed (``MessageReference.objects.for_target(obj)``).

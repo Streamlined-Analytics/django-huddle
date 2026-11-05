@@ -12,8 +12,9 @@
     Path the browser opens its chat websocket on.
 ``HUDDLE_REFERENCE_RESOLVERS``
     Dotted paths to :class:`~huddle.references.ReferenceResolver` subclasses
-    that turn ``#codes`` into links to host objects. Empty means ``#`` stays
-    plain text. Earlier entries win when two resolve the same code.
+    that turn typed codes (``#B3.2``, or another ``trigger`` such as ``!0004``)
+    into links to host objects. Empty means ``#`` stays plain text. Earlier
+    entries win when two resolvers with the same trigger resolve the same code.
 ``HUDDLE_FREE_TYPED_MENTIONS``
     Whether a typed ``@handle`` (a display name without spaces, or an email
     local part) becomes a mention without being picked from autocomplete.

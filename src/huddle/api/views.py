@@ -203,10 +203,12 @@ class ChannelViewSet(HuddleAPIViewSet):
 
     @action(detail=True, methods=["get"])
     def references(self, request: Request, pk: str) -> Response:
-        """Host objects that may be ``#``-referenced here, filtered by ``?q=``."""
+        """Host objects that may be referenced here, filtered by ``?q=`` and optionally ``?trigger=``."""
         channel = self.get_channel()
-        query = request.query_params.get("q", "").strip().lstrip("#")
-        found = get_reference_registry().search(channel, self.chat_user, query, limit=REFERENCE_RESULTS_LIMIT)
+        registry = get_reference_registry()
+        query = request.query_params.get("q", "").strip().lstrip("".join(registry.triggers))
+        trigger = request.query_params.get("trigger") or None
+        found = registry.search(channel, self.chat_user, query, limit=REFERENCE_RESULTS_LIMIT, trigger=trigger)
         return Response([reference.as_dict() for reference in found])
 
     def _post_message(self, channel: Channel) -> Response:

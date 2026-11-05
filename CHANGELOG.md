@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.4.0 (unreleased)
+
+- Reference resolvers choose their trigger character (ADR-0014). Set
+  `trigger = "!"` on a `ReferenceResolver` subclass and its objects are typed
+  as `!0004`; the default stays `#`, so existing hosts are unchanged. Several
+  resolvers may share a trigger, and a typed code is only searched for and
+  resolved by resolvers with its trigger.
+- Triggers are checked when the registry is built: one character that isn't a
+  letter, digit, `_` or whitespace (`InvalidReferenceTriggerError`), and not
+  `@`, `<` or `>` (`ReservedReferenceTriggerError`).
+- Stored bodies keep `<#kind:id>` for every trigger, so there's no migration
+  and old messages keep rendering, even after a trigger changes.
+- The composer reads the configured triggers from
+  `data-reference-triggers`, sends `?trigger=` to the reference search, and
+  inserts picks with their trigger. The search view and the API's
+  `references/` endpoint accept `?trigger=` (absent means every resolver).
+- `Reference` has a `trigger` field and a `typed` property (`!0004`). The REST
+  API and websocket JSON include `trigger` in each reference.
+- `label()` defaults to the trigger and the code, and the unavailable
+  placeholder (`!unavailable`, `!unavailable-N` when editing) uses the trigger
+  of its kind.
+- Internal: `MessageMarkup` takes the registry, `reference_codes()` is now
+  `typed_references()` (returning `#T1`, not `T1`), and `encode()`'s
+  `references` are keyed by the typed form. `ReferenceRegistry.search()` and
+  `resolve_codes()` take a `trigger` keyword.
+- The example project adds `Milestone` and a `!M1` `MilestoneResolver`.
+
 ## 0.3.1 (2026-11-02)
 
 - Fixed "Reply in thread", Edit and Delete doing nothing on a message you

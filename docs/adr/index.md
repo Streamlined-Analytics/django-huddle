@@ -19,3 +19,4 @@ superseded decision gets a new record.
 | [ADR-0011](0011-edits-keep-links-whose-text-remains.md) | Edits keep links whose text remains, using numbered `#unavailable-N` placeholders |
 | [ADR-0012](0012-record-and-restore-deleted-messages.md) | Deletions are recorded in `MessageDeletion` with who deleted them; `restore_message` undoes one |
 | [ADR-0013](0013-process-messages-swapped-in-by-deduplication.md) | Messages swapped in by de-duplication are passed to `htmx.process` |
+| [ADR-0014](0014-per-resolver-reference-triggers.md) | Each resolver chooses its trigger character (`#` by default); tokens stay `<#kind:id>` |

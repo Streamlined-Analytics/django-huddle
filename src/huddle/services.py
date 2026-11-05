@@ -7,8 +7,9 @@ huddle models directly.
 
 Encoding a message is a service job, not a markup job, because it needs the
 database: picked mentions are limited to ``mentionable_users``, free-typed
-``@handles`` are matched against them, and ``#codes`` are resolved by the
-configured reference resolvers for the sender in that channel. The markup
+``@handles`` are matched against them, and typed references (``#B3.2``,
+``!0004``) are resolved by the configured resolvers for their trigger, for the
+sender in that channel. The markup
 then only substitutes what the service found.
 """
 
@@ -74,8 +75,8 @@ class KeptLinks:
     """Links an edit may keep: what the editor's composer showed for each existing token.
 
     ``mentions`` maps the lower-case typed form (``ann lee``) to the user and
-    ``references`` maps the code (``T1`` or ``unavailable-2``) to the
-    reference. Only tokens already on the message are here, so keeping one can
+    ``references`` maps the typed form with its trigger (``#T1`` or
+    ``!unavailable-2``) to the reference. Only tokens already on the message are here, so keeping one can
     never forge a link.
     """
 
@@ -95,7 +96,7 @@ def _kept_reference(link: EditableLink) -> Reference:
     if isinstance(link.target, Reference):
         return link.target
     kind, _, object_id = link.token.removeprefix("<#").removesuffix(">").partition(":")
-    return Reference(kind=kind, id=object_id, code=link.form.removeprefix("#"), label="", url="")
+    return Reference(kind=kind, id=object_id, code=link.form[1:], label="", url="", trigger=link.form[:1])
 
 
 class ChatService:
@@ -109,9 +110,9 @@ class ChatService:
         references: ReferenceRegistry | None = None,
     ) -> None:
         self.policy = policy or get_policy()
-        self.markup = markup or MessageMarkup()
-        self.broadcaster = broadcaster or Broadcaster()
         self.references = references if references is not None else get_reference_registry()
+        self.markup = markup or MessageMarkup(self.references)
+        self.broadcaster = broadcaster or Broadcaster()
 
     def create_channel(
         self,
@@ -265,8 +266,8 @@ class ChatService:
           mentionable user owns it; the longest match wins.
         - ``kept`` links (see :meth:`kept_links`) win over everything else.
         - Picked references count only if the sender may see them here; other
-          ``#codes`` go to the resolvers, first in settings order wins.
-          Unknown or unauthorised codes stay plain text.
+          typed references go to the resolvers with their trigger, first in
+          settings order wins. Unknown or unauthorised codes stay plain text.
         """
         kept = kept or KeptLinks()
         picked_users = self._allowed_mentions(channel, mentioned)
@@ -286,7 +287,7 @@ class ChatService:
         """The links on ``message`` an edit by ``user`` keeps if their composer form is still in the text.
 
         Forms are what ``user``'s composer shows (``@Ann Lee``, ``#T1``,
-        ``#unavailable-1``…). References need a recorded row and mentions an
+        ``!R4``, ``#unavailable-1``…). References need a recorded row and mentions an
         existing user. A form shared by two different tokens is ambiguous and
         is not kept; that text then goes through the usual rules.
         """
@@ -296,8 +297,8 @@ class ChatService:
         uses = Counter(link.form.lower() for link in links)
         links = [link for link in links if uses[link.form.lower()] == 1]
         return KeptLinks(
-            mentions={link.form[1:].lower(): link.target for link in links if link.form.startswith("@")},
-            references={link.form[1:]: _kept_reference(link) for link in links if link.form.startswith("#")},
+            mentions={link.form[1:].lower(): link.target for link in links if link.token.startswith("<@")},
+            references={link.form: _kept_reference(link) for link in links if link.token.startswith("<#")},
         )
 
     def delete_message(self, user: Any, message: Message) -> MessageDeletion:
@@ -414,20 +415,31 @@ class ChatService:
     def _found_references(
         self, user: Any, channel: Channel, text: str, picks: Iterable[str], *, skip: Iterable[str] = ()
     ) -> dict[str, Reference]:
-        """Typed ``#codes`` mapped to the references they encode to: exact picks first, then free-typed lookups.
+        """Typed references (``#T1``) mapped to what they encode to: exact picks first, then free-typed lookups.
 
         At most ``MAX_RESOLVED_CODES`` unpicked codes are looked up per message,
         so a message full of ``#`` words cannot fan out into thousands of queries.
         """
         if not self.references:
             return {}
-        codes = self.markup.reference_codes(text)
-        if not codes:
+        typed = self.markup.typed_references(text)
+        if not typed:
             return {}
-        picked = {reference.code: reference for reference in self.references.visible(channel, user, picks).values()}
+        picked = {reference.typed: reference for reference in self.references.visible(channel, user, picks).values()}
         skipped = set(skip)
-        unpicked = [code for code in codes if code not in picked and code not in skipped][:MAX_RESOLVED_CODES]
-        return {**self.references.resolve_codes(channel, user, unpicked), **picked}
+        unpicked = [form for form in typed if form not in picked and form not in skipped][:MAX_RESOLVED_CODES]
+        return {**self._resolve_typed(channel, user, unpicked), **picked}
+
+    def _resolve_typed(self, channel: Channel, user: Any, typed: list[str]) -> dict[str, Reference]:
+        """Free-typed references mapped to what the resolvers for each one's trigger make of them."""
+        codes_by_trigger: defaultdict[str, list[str]] = defaultdict(list)
+        for form in typed:
+            codes_by_trigger[form[:1]].append(form[1:])
+        resolved: dict[str, Reference] = {}
+        for trigger, codes in codes_by_trigger.items():
+            found = self.references.resolve_codes(channel, user, codes, trigger=trigger)
+            resolved.update({f"{trigger}{code}": reference for code, reference in found.items()})
+        return resolved
 
     def _record_references(
         self, message: Message, references: list[Reference]
