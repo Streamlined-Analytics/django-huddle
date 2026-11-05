@@ -43,7 +43,7 @@ function huddleMentionInput(textarea) {
 
 function huddleReferencePattern(references) {
   const triggers = (references.dataset.referenceTriggers || "#").replace(/[\\\]^-]/g, "\\$&");
-  return new RegExp(`(^|\\s)([${triggers}])([^\\s${triggers}]{0,40})$`, "u");
+  return new RegExp(`(^|\\s)([${triggers}])((?:(?!\\2)\\S){0,40})$`, "u");
 }
 
 function huddleShowResults(form, url, query, trigger) {
