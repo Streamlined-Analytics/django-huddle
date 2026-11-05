@@ -76,6 +76,30 @@ class InvalidReferenceKindError(HuddleError):
         )
 
 
+class InvalidReferenceTriggerError(HuddleError):
+    """A resolver's ``trigger`` is not one character that is neither a word character nor whitespace."""
+
+    def __init__(self, resolver: str, trigger: Any) -> None:
+        super().__init__(
+            f"Reference resolver {resolver} has trigger {trigger!r}; use one character that is not a letter, "
+            "digit, '_' or whitespace.",
+            resolver=resolver,
+            trigger=repr(trigger),
+        )
+
+
+class ReservedReferenceTriggerError(HuddleError):
+    """A resolver's ``trigger`` is a character huddle already uses: ``@`` for mentions, ``<`` and ``>`` for tokens."""
+
+    def __init__(self, resolver: str, trigger: str, reserved_for: str) -> None:
+        super().__init__(
+            f"Reference resolver {resolver} has trigger {trigger!r}, which huddle reserves for {reserved_for}.",
+            resolver=resolver,
+            trigger=trigger,
+            reserved_for=reserved_for,
+        )
+
+
 class DuplicateReferenceKindError(HuddleError):
     """Two configured resolvers claim the same ``kind``."""
 

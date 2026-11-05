@@ -1,7 +1,6 @@
 "use strict";
 
 const HUDDLE_MENTION_PATTERN = /(^|\s)@((?:[^\s@]{1,40}(?: [^\s@]{0,40}){0,2})?)$/;
-const HUDDLE_REFERENCE_PATTERN = /(^|\s)#([^\s#]{0,40})$/;
 
 function huddleComposerKeydown(event, textarea) {
   const results = textarea.form.querySelector(".huddle-mention-results");
@@ -33,19 +32,28 @@ function huddleMentionInput(textarea) {
     huddleShowResults(form, form.querySelector(".huddle-composer__mentions").dataset.mentionUrl, mention[2]);
     return;
   }
-  const reference = beforeCaret.match(HUDDLE_REFERENCE_PATTERN);
   const references = form.querySelector(".huddle-composer__references");
-  if (reference && references) {
-    huddleShowResults(form, references.dataset.referenceUrl, reference[2]);
+  const reference = references && beforeCaret.match(huddleReferencePattern(references));
+  if (reference) {
+    huddleShowResults(form, references.dataset.referenceUrl, reference[3], reference[2]);
     return;
   }
   huddleHideMentions(form);
 }
 
-function huddleShowResults(form, url, query) {
+function huddleReferencePattern(references) {
+  const triggers = (references.dataset.referenceTriggers || "#").replace(/[\\\]^-]/g, "\\$&");
+  return new RegExp(`(^|\\s)([${triggers}])((?:(?!\\2)\\S){0,40})$`, "u");
+}
+
+function huddleShowResults(form, url, query, trigger) {
   const results = form.querySelector(".huddle-mention-results");
+  const params = new URLSearchParams({ q: query });
+  if (trigger) {
+    params.set("trigger", trigger);
+  }
   results.hidden = false;
-  htmx.ajax("GET", `${url}?q=${encodeURIComponent(query)}`, { target: results, swap: "innerHTML" });
+  htmx.ajax("GET", `${url}?${params}`, { target: results, swap: "innerHTML" });
 }
 
 function huddleMentionPick(option) {
@@ -56,8 +64,9 @@ function huddleMentionPick(option) {
 
 function huddleReferencePick(option) {
   const form = option.closest("form");
-  huddleInsertPick(form, HUDDLE_REFERENCE_PATTERN, `#${option.dataset.code}`);
-  huddleAddHidden(form.querySelector(".huddle-composer__references"), "references", option.dataset.token);
+  const references = form.querySelector(".huddle-composer__references");
+  huddleInsertPick(form, huddleReferencePattern(references), `${option.dataset.trigger}${option.dataset.code}`);
+  huddleAddHidden(references, "references", option.dataset.token);
 }
 
 function huddleInsertPick(form, pattern, text) {

@@ -65,7 +65,9 @@ class MessageForm(forms.Form):
     def __init__(self, *args: Any, channel: Channel, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.channel = channel
-        self.references_enabled = bool(get_reference_registry())
+        registry = get_reference_registry()
+        self.references_enabled = bool(registry)
+        self.reference_triggers = "".join(registry.triggers)
         max_length = get_setting("HUDDLE_MAX_MESSAGE_LENGTH")
         text_field = self.fields["text"]
         text_field.validators.append(MaxLengthValidator(max_length))

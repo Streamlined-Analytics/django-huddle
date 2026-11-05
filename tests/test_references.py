@@ -131,16 +131,16 @@ class TestMarkup:
     ticket = Reference(kind="ticket", id="7", code="T1", label="#T1 <Door>", url="/t/7/")
 
     def test_encode_swaps_known_codes_only(self):
-        body = markup.encode("see #T1, #T9 and #T1.", references={"T1": self.ticket})
+        body = markup.encode("see #T1, #T9 and #T1.", references={"#T1": self.ticket})
         assert body == "see <#ticket:7>, #T9 and <#ticket:7>."
 
     def test_encode_neutralises_forged_references(self):
-        body = markup.encode("sneaky <#ticket:7> #T1", references={"T1": self.ticket})
+        body = markup.encode("sneaky <#ticket:7> #T1", references={"#T1": self.ticket})
         assert markup.referenced_tokens(body) == ["ticket:7"]
         assert "<\u200b#ticket:7>" in body
 
     def test_codes_need_a_boundary(self):
-        assert markup.reference_codes("https://x.test/#T1 a#T2 (#T3) #T4/5 #-x #T3") == ["T3", "T4/5"]
+        assert markup.typed_references("https://x.test/#T1 a#T2 (#T3) #T4/5 #-x #T3") == ["#T3", "#T4/5"]
 
     def test_render_reference_states(self):
         body = "<#ticket:7> <#ticket:8> <#risk:1>"
@@ -405,6 +405,7 @@ class TestApi:
             "kind": "ticket",
             "id": str(ticket.pk),
             "code": "T1",
+            "trigger": "#",
             "label": "#T1 Fix the door",
             "url": ticket.get_absolute_url(),
         }

@@ -1,7 +1,7 @@
 # django-huddle
 
 Slack-style team chat for Django: **channels, direct messages, threads,
-@mentions and `#` links to your own objects**, live over [Django Channels](https://channels.readthedocs.io/).
+@mentions and `#` (or `!`, or any character you choose) links to your own objects**, live over [Django Channels](https://channels.readthedocs.io/).
 
 - **Channels and DMs.** Public and private named channels, plus one-to-one and
   group direct messages (one conversation per group of people).
@@ -10,9 +10,9 @@ Slack-style team chat for Django: **channels, direct messages, threads,
 - **@mentions.** Autocomplete offers only people who can read the channel, and
   typing the exact name (`@Ben Atkinson`) or a handle (`@benatkinson`) works too. Mentions are stored by user
   id, so renaming someone never breaks old messages.
-- **`#` references.** `#B3.2` or `#0001` can link to your own objects (requirements,
-  tickets, risks), through resolvers you write. Each viewer sees only what they
-  may see.
+- **References.** `#B3.2` or `!0001` can link to your own objects (requirements,
+  tickets, risks), through resolvers you write. You choose the character each
+  kind is typed with. Each viewer sees only what they may see.
 - **Live.** New messages, edits, deletions, thread replies and unread badges
   arrive over a websocket.
 - **Your permissions.** One policy class decides every visibility and action
@@ -156,7 +156,7 @@ message can be kept, so nothing can be forged. Kept links send no new
 `PATCH` and `ChatService.edit_message()` behave the same way;
 `ChatService.kept_links(user, message)` shows what an edit would keep.
 
-## `#` references to your own objects
+## References to your own objects
 
 Messages can link to objects in your project: `where are we up to with #B3.2?`
 Write one resolver per kind of object and list them in settings:
@@ -210,8 +210,41 @@ HUDDLE_REFERENCE_RESOLVERS = ["myapp.chat.RequirementResolver", "myapp.chat.Risk
 - **Unknown or forbidden codes stay plain text.** A hand-typed `<#…>` token is
   neutralised, so references can't be forged.
 - **Conflicts.** A code picked from autocomplete is exact. A free-typed code goes
-  to the resolvers in settings order, and the first one that resolves it wins.
+  to the resolvers for its trigger in settings order, and the first one that
+  resolves it wins.
 - **No resolvers configured** means `#` stays plain text, as in 0.1.0.
+
+### Choosing the trigger character
+
+Each resolver says which character people type before a code. It defaults to
+`#`; set `trigger` to give a kind its own:
+
+```python
+class RiskResolver(ReferenceResolver):
+    kind = "risk"
+    trigger = "!"  # people type !0004; still stored as <#risk:42>
+    ...
+```
+
+- **A trigger is one character** that isn't a letter, digit, `_` or
+  whitespace. `@` (mentions), `<` and `>` (stored tokens) are reserved. A bad
+  trigger raises `InvalidReferenceTriggerError` or
+  `ReservedReferenceTriggerError` when the registry is built.
+- **Resolvers can share a trigger.** Several `#` kinds work as before. A typed
+  `!0004` is only offered to, and resolved by, the resolvers whose trigger is
+  `!`; `#0004` never reaches them.
+- **Prose is safe.** A code must follow whitespace, `(` or `[`, and start with a
+  letter or digit, so `done!`, `!!!` and `really?!` are never looked up. A
+  word like `!important` is asked about, and stays plain text unless one of
+  your objects has that code.
+- **Changing a trigger is safe.** Bodies store `<#kind:id>`, so old messages
+  show the new trigger when they are next rendered or edited.
+- `label()` defaults to the trigger plus the code (`!0004`), and the
+  placeholder for an object the viewer can't see uses the trigger of its kind
+  (`!unavailable`).
+- The composer learns the configured triggers from the
+  `data-reference-triggers` attribute in `composer_fields.html`, and asks the
+  search endpoint for `?q=…&trigger=!`.
 
 Each reference is recorded as a `huddle.models.MessageReference` row (`message`,
 `kind`, `object_id`, and `content_type`/`target` when the resolver returned a
@@ -222,8 +255,8 @@ chat" on an item:
 MessageReference.objects.for_target(requirement).visible_to(request.user).select_related("message")
 ```
 
-The example project has a complete project-scoped policy and resolver in
-[`example/chat.py`](example/chat.py).
+The example project has a complete project-scoped policy and two resolvers
+(`#T1` tickets and `!M1` milestones) in [`example/chat.py`](example/chat.py).
 
 ## Writing from your own code
 
@@ -287,7 +320,7 @@ project's templates directory:
 | Template | What it draws |
 |---|---|
 | `huddle/components/message.html` | One message, with its actions and thread summary |
-| `huddle/components/composer.html`, `composer_fields.html` | The message box, @mention and `#` reference autocomplete |
+| `huddle/components/composer.html`, `composer_fields.html` | The message box, @mention and reference autocomplete |
 | `huddle/components/mention_results.html`, `reference_results.html` | The autocomplete options |
 | `huddle/components/sidebar.html`, `sidebar_entry.html` | Channel and DM list, unread badges |
 | `huddle/components/thread.html` | The thread side panel |
@@ -315,14 +348,14 @@ properties (`--huddle-accent`, `--huddle-border`, …) for theming.
 | `GET /channels/{id}/messages/?before=&limit=` | A page of top-level messages, oldest first |
 | `POST /channels/{id}/messages/` | Post `{text, mention_ids, reference_ids, parent_id}` |
 | `GET /channels/{id}/mentionable/?q=` | People who can be @mentioned |
-| `GET /channels/{id}/references/?q=` | Objects that can be `#`-referenced, as `{kind, id, code, label, url}` |
+| `GET /channels/{id}/references/?q=&trigger=` | Objects that can be referenced (only resolvers with `trigger`, if given), as `{kind, id, code, trigger, label, url}` |
 | `GET`, `PATCH`, `DELETE /messages/{id}/` | Read, edit `{text, mention_ids, reference_ids}`, delete |
 | `GET /messages/{id}/replies/` · `POST read/` | A thread, and marking it read |
 
 `reference_ids` are `kind:id` strings, as returned by the references endpoint.
 Messages come back with `body` (stored tokens), `text` (editable, with
 `@Name` and `#code`), `html` (rendered and safe), `mention_ids`, `references`
-(`[{kind, id, code, label, url}]`, only what this viewer may see), `author`, the timestamps,
+(`[{kind, id, code, trigger, label, url}]`, only what this viewer may see), `author`, the timestamps,
 `reply_count`, and per-viewer `can_edit`, `can_delete` and `is_own`. To
 attach API-created channels to your own objects, subclass
 `huddle.api.views.ChannelViewSet` and override `get_scope()`.
@@ -359,7 +392,7 @@ else, so there's no HTML sanitiser to keep patched.
 | `HUDDLE_PAGE_SIZE` | `50` |
 | `HUDDLE_MAX_MESSAGE_LENGTH` | `10000` |
 | `HUDDLE_WEBSOCKET_URL` | `"/ws/huddle/"` |
-| `HUDDLE_REFERENCE_RESOLVERS` | `[]` (dotted paths to `ReferenceResolver` subclasses; earlier entries win conflicts) |
+| `HUDDLE_REFERENCE_RESOLVERS` | `[]` (dotted paths to `ReferenceResolver` subclasses, each with its own `trigger`; earlier entries win conflicts) |
 | `HUDDLE_FREE_TYPED_MENTIONS` | `True` (typed `@Full Name` and `@handles` mention without picking) |
 
 ## Development

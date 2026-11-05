@@ -1,9 +1,10 @@
-"""How a host wires django-huddle to its own objects: a project-scoped policy and a ``#ticket`` resolver.
+"""How a host wires django-huddle to its own objects: a project-scoped policy and two resolvers.
 
+Tickets are typed after ``#`` (``#T1``) and milestones after ``!`` (``!M1``).
 Enable with::
 
     HUDDLE_POLICY = "example.chat.ProjectChatPolicy"
-    HUDDLE_REFERENCE_RESOLVERS = ["example.chat.TicketResolver"]
+    HUDDLE_REFERENCE_RESOLVERS = ["example.chat.TicketResolver", "example.chat.MilestoneResolver"]
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from django.contrib.auth.models import AbstractBaseUser
 from django.db.models import Q
 from django.db.models import QuerySet
 
+from example.models import Milestone
 from example.models import Project
 from example.models import Ticket
 from huddle.models import Channel
@@ -80,3 +82,38 @@ class TicketResolver(ReferenceResolver):
     def label(self, obj: Ticket) -> str:
         """``#T1 Fix the door``."""
         return f"#{obj.code} {obj.title}"
+
+
+class MilestoneResolver(ReferenceResolver):
+    """``!M1`` in a project channel links to that project's milestone M1, for project members.
+
+    Milestones use their own trigger, so ``#M1`` is never a milestone and ``!T1``
+    is never a ticket. The default ``label`` is ``!M1``.
+    """
+
+    kind = "milestone"
+    trigger = "!"
+
+    def milestones(self, channel: Channel, user: Any) -> QuerySet[Milestone]:
+        """Milestones of the channel's project, if ``user`` is a member."""
+        scope = channel.scope
+        if not isinstance(scope, Project):
+            return Milestone.objects.none()
+        return Milestone.objects.filter(project=scope, project__members=user)
+
+    def search(self, channel: Channel, user: Any, query: str, *, limit: int) -> QuerySet[Milestone]:
+        """Milestones whose code or title contains ``query``."""
+        matches = self.milestones(channel, user).filter(Q(code__icontains=query) | Q(title__icontains=query))
+        return matches.order_by("code")[:limit]
+
+    def resolve_code(self, channel: Channel, user: Any, code: str) -> Milestone | None:
+        """The milestone with this code (case-insensitive)."""
+        return self.milestones(channel, user).filter(code__iexact=code).first()
+
+    def get(self, channel: Channel, user: Any, ids: Collection[str]) -> QuerySet[Milestone]:
+        """The visible milestones among ``ids``."""
+        return self.milestones(channel, user).filter(pk__in=ids)
+
+    def code(self, obj: Milestone) -> str:
+        """Milestones are typed by their code."""
+        return obj.code

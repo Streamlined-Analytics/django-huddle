@@ -1,4 +1,4 @@
-"""Toy host models for the example project and the tests: projects with members, and their tickets."""
+"""Toy host models for the example project and the tests: projects with members, their tickets and milestones."""
 
 from __future__ import annotations
 
@@ -32,3 +32,21 @@ class Ticket(models.Model):
     def get_absolute_url(self) -> str:
         """A made-up item page."""
         return f"/projects/{self.project_id}/tickets/{self.pk}/"
+
+
+class Milestone(models.Model):
+    """A project milestone that chat messages reference with a different trigger: ``!M1``, ``!M2``…"""
+
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="milestones")
+    code = models.CharField(max_length=20)
+    title = models.CharField(max_length=200)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["project", "code"], name="example_unique_milestone_code")]
+
+    def __str__(self) -> str:
+        return self.code
+
+    def get_absolute_url(self) -> str:
+        """A made-up milestone page."""
+        return f"/projects/{self.project_id}/milestones/{self.pk}/"

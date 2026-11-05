@@ -8,8 +8,10 @@ Bodies are plain text plus two kinds of token:
 
 The composer shows people as ``@Display Name`` and posts the chosen user ids
 alongside the text; :meth:`MessageMarkup.encode` swaps each ``@Display Name``
-for its token. A free-typed ``@handle`` and a ``#code`` are swapped too, once
-the service has worked out who or what they name. Storing ids, not names or
+for its token. A free-typed ``@handle`` and a code after a reference trigger
+(``#B3.2``, ``!0004``) are swapped too, once the service has worked out who or
+what they name. Every reference is stored as ``<#kind:id>`` whatever its
+trigger, because the kind already names the resolver. Storing ids, not names or
 codes, means renaming a user or renumbering an item never breaks old
 messages. Rendering escapes every text segment, so bodies are XSS-safe without
 an HTML sanitiser.
@@ -22,6 +24,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
+from collections.abc import Iterator
 from collections.abc import Mapping
 from itertools import count
 from typing import Any
@@ -33,7 +36,9 @@ from django.utils.html import urlize
 from django.utils.safestring import SafeString
 from django.utils.safestring import mark_safe
 
+from huddle.references import DEFAULT_TRIGGER
 from huddle.references import Reference
+from huddle.references import ReferenceRegistry
 
 MENTION_TOKEN = re.compile(r"<@([^>\s]+)>")
 REFERENCE_TOKEN = re.compile(r"<#([^>\s]+)>")
@@ -45,9 +50,9 @@ HANDLE = re.compile(_AFTER_SPACE + r"@(\w(?:[\w.\-]*\w)?)")
 HANDLE_BODY = re.compile(r"\w(?:[\w.\-]*\w)?")
 MENTION_START = re.compile(_AFTER_SPACE + r"@(?=\S)")
 WORD_CHARACTER = re.compile(r"\w")
-REFERENCE_CODE = re.compile(_AFTER_SPACE + r"#(\w(?:[\w.\-/]*\w)?)")
+REFERENCE_CODE_BODY = r"(\w(?:[\w.\-/]*\w)?)"
 
-UNAVAILABLE_REFERENCE = "#unavailable"
+UNAVAILABLE_CODE = "unavailable"
 SAFE_URL_SCHEMES = frozenset({"", "http", "https"})
 
 
@@ -90,8 +95,24 @@ def _is_safe_url(url: str) -> bool:
     return urlsplit(url).scheme.lower() in SAFE_URL_SCHEMES
 
 
+def reference_code_pattern(triggers: Iterable[str]) -> re.Pattern[str]:
+    """A typed reference after a boundary: group 1 is the trigger, group 2 the code (``#B3.2``, ``!0004``)."""
+    escaped = "".join(re.escape(trigger) for trigger in triggers)
+    return re.compile(_AFTER_SPACE + f"([{escaped}])" + REFERENCE_CODE_BODY)
+
+
 class MessageMarkup:
-    """Encode composer text into stored bodies, and render bodies to HTML."""
+    """Encode composer text into stored bodies, and render bodies to HTML.
+
+    ``references`` supplies the reference triggers: which characters start a
+    typed code, and which trigger each kind is shown with. Without it, ``#``
+    is the only trigger.
+    """
+
+    def __init__(self, references: ReferenceRegistry | None = None) -> None:
+        registry = references if references is not None else ReferenceRegistry()
+        self.trigger_of = registry.trigger_of
+        self.reference_code = reference_code_pattern(registry.triggers or (DEFAULT_TRIGGER,))
 
     def encode(
         self,
@@ -110,8 +131,9 @@ class MessageMarkup:
           longest key that matches and ends at a word boundary wins, so
           "@Ann Lee" beats "@Ann" and "@Ann Leeds" is not "Ann Lee". A key
           mapped to ``None`` (an ambiguous name) leaves the text as it is.
-        - A ``#code`` that is a key of ``references`` becomes ``<#kind:id>``.
-          Anything else stays plain text.
+        - A typed reference (trigger and code, such as ``#T1`` or ``!0004``)
+          that is a key of ``references`` becomes ``<#kind:id>``. Anything
+          else stays plain text.
 
         Stray ``<@…>`` and ``<#…>`` typed by hand are neutralised first, so
         users cannot forge mentions or references.
@@ -120,7 +142,7 @@ class MessageMarkup:
         if handles:
             body = self._replace_typed(body, handles)
         if references:
-            body = REFERENCE_CODE.sub(lambda match: self._reference_token(match, references), body)
+            body = self.reference_code.sub(lambda match: self._reference_token(match, references), body)
         return body
 
     def has_typed_mentions(self, text: str, mentioned: Iterable[Any] = ()) -> bool:
@@ -132,10 +154,10 @@ class MessageMarkup:
         body = self._replace_picked(self._neutralise(text), mentioned)
         return {match.group(1).lower() for match in HANDLE.finditer(body)}
 
-    def reference_codes(self, text: str) -> list[str]:
-        """The distinct ``#codes`` in ``text``, in order of first appearance."""
-        codes = (match.group(1) for match in REFERENCE_CODE.finditer(self._neutralise(text)))
-        return list(dict.fromkeys(codes))
+    def typed_references(self, text: str) -> list[str]:
+        """The distinct typed references in ``text`` (``#T1``, ``!0004``), in order of first appearance."""
+        typed = (match.group(0) for match in self.reference_code.finditer(self._neutralise(text)))
+        return list(dict.fromkeys(typed))
 
     def mentioned_pks(self, body: str) -> set[str]:
         """Primary keys (as strings) of the users mentioned in ``body``."""
@@ -164,21 +186,22 @@ class MessageMarkup:
         """Each token in ``body`` mapped to the text the composer shows for it.
 
         Mentions become ``@Display Name`` (``@unknown`` for a deleted user).
-        References in ``references`` become ``#code``; those mapped to
-        ``None`` (not visible to this editor) become ``#unavailable-1``,
-        ``#unavailable-2``… numbered in order of first appearance, so each
-        stays distinct when an edit keeps it. Tokens of unknown kinds have no
-        entry and stay as they are.
+        References in ``references`` become their trigger and code (``#T1``);
+        those mapped to ``None`` (not visible to this editor) become
+        ``#unavailable-1``, ``!unavailable-2``… with their kind's trigger,
+        numbered in order of first appearance, so each stays distinct when an
+        edit keeps it. Tokens of unknown kinds have no entry and stay as they
+        are.
         """
-        forms: dict[str, str | None] = {}
-        for match in TOKEN.finditer(body):
-            forms.setdefault(match.group(0), self._editable_form(match, users_by_pk, references))
+        forms: dict[str, str] = {}
         numbering = count(1)
-        return {
-            token: f"{UNAVAILABLE_REFERENCE}-{next(numbering)}" if form == UNAVAILABLE_REFERENCE else form
-            for token, form in forms.items()
-            if form is not None
-        }
+        for match in TOKEN.finditer(body):
+            if match.group(0) in forms:
+                continue
+            form = self._editable_form(match, users_by_pk, references, numbering)
+            if form is not None:
+                forms[match.group(0)] = form
+        return forms
 
     def render(
         self,
@@ -247,14 +270,15 @@ class MessageMarkup:
 
     @staticmethod
     def _reference_token(match: re.Match[str], references: Mapping[str, Reference]) -> str:
-        reference = references.get(match.group(1))
+        reference = references.get(match.group(0))
         return f"<#{reference.token}>" if reference is not None else match.group(0)
 
-    @staticmethod
     def _editable_form(
+        self,
         match: re.Match[str],
         users_by_pk: Mapping[str, Any],
         references: Mapping[str, Reference | None] | None,
+        numbering: Iterator[int],
     ) -> str | None:
         mention_pk, reference_token = match.groups()
         if reference_token is None:
@@ -263,7 +287,9 @@ class MessageMarkup:
         if references is None or reference_token not in references:
             return None
         reference = references[reference_token]
-        return f"#{reference.code}" if reference is not None else UNAVAILABLE_REFERENCE
+        if reference is not None:
+            return reference.typed
+        return f"{self.trigger_of(reference_token.partition(':')[0])}{UNAVAILABLE_CODE}-{next(numbering)}"
 
     def _render_text(self, text: str) -> str:
         if not text:
@@ -294,7 +320,11 @@ class MessageMarkup:
             return self._render_text(match.group(0))
         reference = references[token]
         if reference is None:
-            return f'<span class="huddle-reference huddle-reference--unavailable">{UNAVAILABLE_REFERENCE}</span>'
+            return format_html(
+                '<span class="huddle-reference huddle-reference--unavailable">{}{}</span>',
+                self.trigger_of(token.partition(":")[0]),
+                UNAVAILABLE_CODE,
+            )
         if reference.url and _is_safe_url(reference.url):
             return format_html(
                 '<a class="huddle-reference" href="{}" data-reference="{}">{}</a>',

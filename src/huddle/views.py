@@ -351,13 +351,15 @@ class MentionSearchView(HuddleViewMixin, View):
 
 
 class ReferenceSearchView(HuddleViewMixin, View):
-    """Autocomplete host objects that may be ``#``-referenced in a channel."""
+    """Autocomplete host objects that may be referenced in a channel."""
 
     def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
-        """Ask every configured resolver for matches to ``q``, in settings order."""
+        """Ask the resolvers for ``?trigger=`` (every resolver if absent) for matches to ``q``, in settings order."""
         channel = self.get_channel()
-        query = request.GET.get("q", "").strip().lstrip("#")
-        references = get_reference_registry().search(channel, self.chat_user, query, limit=REFERENCE_RESULTS_LIMIT)
+        registry = get_reference_registry()
+        query = request.GET.get("q", "").strip().lstrip("".join(registry.triggers))
+        trigger = request.GET.get("trigger") or None
+        references = registry.search(channel, self.chat_user, query, limit=REFERENCE_RESULTS_LIMIT, trigger=trigger)
         return self.chat_response("reference_results", {"references": references})
 
 
